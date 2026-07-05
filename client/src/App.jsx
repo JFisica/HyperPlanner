@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiGet, apiSend, getPin, setPin, clearPin } from './api';
+import { apiGet, apiSend } from './api';
 import { todayISO } from './lib';
 import Team from './views/Team';
 import Backlog from './views/Backlog';
@@ -24,7 +24,6 @@ export default function App() {
     const q = new URLSearchParams(window.location.search).get('date');
     return q || todayISO();
   });
-  const [authed, setAuthed] = useState(!!getPin());
   const [offline, setOffline] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
@@ -40,7 +39,7 @@ export default function App() {
       setState(await apiGet('/api/state'));
       setOffline(false);
     } catch {
-      setOffline(true); // keep showing last loaded state
+      setOffline(true);
     }
   }, []);
 
@@ -50,7 +49,6 @@ export default function App() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Every mutation returns the full updated state.
   const mutate = useCallback(
     async (method, path, body) => {
       try {
@@ -59,10 +57,6 @@ export default function App() {
         setOffline(false);
         return true;
       } catch (e) {
-        if (e.status === 401) {
-          clearPin();
-          setAuthed(false);
-        }
         showToast(e.message);
         return false;
       }
@@ -80,10 +74,6 @@ export default function App() {
         )}
       </div>
     );
-  }
-
-  if (!authed) {
-    return <PinGate onOk={() => setAuthed(true)} showToast={showToast} toast={toast} />;
   }
 
   return (
@@ -120,44 +110,6 @@ export default function App() {
         </main>
       )}
 
-      {toast && <div className={`toast ${toast.kind}`}>{toast.msg}</div>}
-    </div>
-  );
-}
-
-function PinGate({ onOk, showToast, toast }) {
-  const [value, setValue] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e) {
-    e.preventDefault();
-    if (!value.trim() || busy) return;
-    setBusy(true);
-    setPin(value.trim());
-    try {
-      await apiSend('POST', '/api/login', {});
-      onOk();
-    } catch (err) {
-      clearPin();
-      showToast(err.status === 401 ? 'PIN incorrecto' : err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="pin-gate">
-      <form onSubmit={submit}>
-        <h1>⚡ EHW Task Command</h1>
-        <input
-          type="password"
-          placeholder="PIN"
-          value={value}
-          autoFocus
-          onChange={(e) => setValue(e.target.value)}
-        />
-        <button type="submit" disabled={busy}>Entrar</button>
-      </form>
       {toast && <div className={`toast ${toast.kind}`}>{toast.msg}</div>}
     </div>
   );

@@ -7,7 +7,6 @@ services:
     volumes:
       - ehw_data:/data           # data.db persiste entre despliegues
     environment:
-      - ADMIN_PIN=${ADMIN_PIN:-1234}
       - DB_PATH=/data/data.db
       - PORT=3000
 

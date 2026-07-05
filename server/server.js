@@ -7,19 +7,7 @@ const { wouldCreateCycle } = require('./graph');
 const app = express();
 app.use(express.json());
 
-const ADMIN_PIN = process.env.ADMIN_PIN || '1234';
 const PORT = process.env.PORT || 3000;
-if (!process.env.ADMIN_PIN) {
-  console.warn('AVISO: ADMIN_PIN no definido, usando PIN por defecto "1234"');
-}
-
-app.use('/api', (req, res, next) => {
-  if (req.method === 'GET') return next();
-  if (req.get('X-Admin-Pin') !== ADMIN_PIN) {
-    return res.status(401).json({ error: 'PIN incorrecto' });
-  }
-  next();
-});
 
 // ---------- state ----------
 
@@ -50,8 +38,6 @@ function getState() {
 const sendState = (res) => res.json(getState());
 
 app.get('/api/state', (req, res) => sendState(res));
-app.post('/api/login', (req, res) => res.json({ ok: true }));
-
 // ---------- settings ----------
 
 app.put('/api/settings', (req, res) => {
