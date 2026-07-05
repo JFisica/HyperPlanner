@@ -5,6 +5,7 @@ import Team from './views/Team';
 import Backlog from './views/Backlog';
 import Assign from './views/Assign';
 import Report from './views/Report';
+import Milestones from './views/Milestones';
 
 const IS_PUBLIC = window.location.pathname.startsWith('/parte');
 
@@ -12,6 +13,7 @@ const TABS = [
   ['asignacion', 'Asignación'],
   ['backlog', 'Backlog'],
   ['equipo', 'Equipo'],
+  ['hitos', 'Hitos'],
   ['parte', 'Parte del día'],
 ];
 
@@ -113,6 +115,7 @@ export default function App() {
           {tab === 'asignacion' && (
             <Assign state={state} mutate={mutate} date={date} setDate={setDate} showToast={showToast} />
           )}
+          {tab === 'hitos' && <Milestones state={state} mutate={mutate} />}
           {tab === 'parte' && <Report state={state} date={date} setDate={setDate} />}
         </main>
       )}
