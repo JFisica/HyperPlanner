@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import {
   byId,
   blockers,
@@ -7,12 +7,20 @@ import {
   fmtHours,
   formatDate,
 } from '../lib';
+import { TaskForm } from './Backlog';
 
 const PX_PER_HOUR = 80;
 const START_HOUR = 6;
 const END_HOUR = 26;   // 02:00 siguiente día
 const TOTAL_H = END_HOUR - START_HOUR; // 20
 const CAL_HEIGHT = TOTAL_H * PX_PER_HOUR; // 1600
+const MIN_DURATION_H = 0.5;
+// Small gap kept at the outer edges of the timeline (solo blocks) and an
+// even smaller one between two parallel (concurrent) blocks. Creating an
+// overlapping slot no longer relies on clicking a background sliver — see
+// the "+ paralelo" button on each block — so these can stay tight.
+const OUTER_GUTTER_PX = 6;
+const INNER_GUTTER_PX = 4;
 
 // Hours 00-05 are post-midnight; treat them as 24-29 internally.
 function normalizeH(h) { return h < START_HOUR ? h + 24 : h; }
@@ -28,9 +36,9 @@ function timeToY(time) {
   return (h - START_HOUR + m / 60) * PX_PER_HOUR;
 }
 
-function yToTime(y, durationH = 1) {
-  const snapped = Math.round((y / PX_PER_HOUR) * 2) / 2;
-  const clamped = Math.max(0, Math.min(snapped, TOTAL_H - durationH));
+function yToTime(y) {
+  const snapped = Math.round((y / PX_PER_HOUR) * 2) / 2; // snap to 30 min
+  const clamped = Math.max(0, Math.min(snapped, TOTAL_H));
   const absH = START_HOUR + clamped;
   let h = Math.floor(absH);
   const m = absH % 1 >= 0.5 ? 30 : 0;
@@ -38,39 +46,38 @@ function yToTime(y, durationH = 1) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-function addHoursToTime(time, hours) {
-  let [h, m] = time.split(':').map(Number);
-  h = normalizeH(h);
-  const total = h * 60 + m + Math.round(hours * 60);
-  let newH = Math.floor(total / 60);
-  if (newH >= 24) newH -= 24;
-  return `${String(newH).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+function minutesToTime(totalMin) {
+  let m = ((totalMin % (24 * 60)) + 24 * 60) % (24 * 60);
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-function timeToMin(t) {
-  let [h, m] = t.split(':').map(Number);
+// Like a plain HH:MM→minutes conversion, but normalizes post-midnight hours
+// (00-05 → 24-29) so they sort/compare correctly in this 6am-2am day window.
+function timeToMinNorm(t) {
+  const [h, m] = t.split(':').map(Number);
   return normalizeH(h) * 60 + m;
 }
 
-// Google Calendar-style column layout for overlapping blocks.
+// Google Calendar-style column layout for overlapping blocks on the shared timeline.
 function layoutBlocks(blocks) {
   if (!blocks.length) return [];
-  const sorted = [...blocks].sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime));
+  const sorted = [...blocks].sort((a, b) => timeToMinNorm(a.start_time) - timeToMinNorm(b.start_time));
   const cols = []; // cols[i] = endMin of last block in column i
   const withCol = sorted.map((b) => {
-    const startMin = timeToMin(b.startTime);
-    const endMin   = timeToMin(b.endTime);
+    const startMin = timeToMinNorm(b.start_time);
+    const endMin   = timeToMinNorm(b.end_time);
     let col = cols.findIndex((end) => end <= startMin);
     if (col === -1) { col = cols.length; cols.push(endMin); }
     else cols[col] = endMin;
     return { ...b, col };
   });
-  // For each block, count how many columns are active during its span.
   return withCol.map((b) => {
-    const startMin = timeToMin(b.startTime);
-    const endMin   = timeToMin(b.endTime);
+    const startMin = timeToMinNorm(b.start_time);
+    const endMin   = timeToMinNorm(b.end_time);
     const concurrent = withCol.filter(
-      (o) => timeToMin(o.startTime) < endMin && timeToMin(o.endTime) > startMin
+      (o) => timeToMinNorm(o.start_time) < endMin && timeToMinNorm(o.end_time) > startMin
     );
     const localCols = Math.max(...concurrent.map((o) => o.col + 1));
     return { ...b, localCols };
@@ -78,132 +85,179 @@ function layoutBlocks(blocks) {
 }
 
 export default function Assign({ state, mutate, date, setDate, showToast }) {
-  const { people, tasks, milestones } = state;
-  const [dragOverTask, setDragOverTask] = useState(null);
-  const [preview, setPreview] = useState(null); // {startTime, durationHours}
+  const { people, tasks, milestones, time_slots } = state;
   const dragRef = useRef(null);
+  const eventsRef = useRef(null);
+  const [creatingTask, setCreatingTask] = useState(false);
 
-  const tasksById     = useMemo(() => byId(tasks), [tasks]);
+  const tasksById      = useMemo(() => byId(tasks), [tasks]);
+  const peopleById     = useMemo(() => byId(people), [people]);
   const milestonesById = useMemo(() => byId(milestones), [milestones]);
-  const peopleById    = useMemo(() => byId(people), [people]);
 
-  // Tasks that have a time slot today.
-  const scheduledToday = useMemo(
-    () => tasks.filter((t) => t.schedule?.some((s) => s.date === date)),
-    [tasks, date]
-  );
+  const slotsToday = useMemo(() => time_slots.filter((s) => s.date === date), [time_slots, date]);
 
-  // Tasks with no time slot today and not done → sidebar list.
+  // Tasks with no slot at all today and not done → sidebar pool.
   const unscheduled = useMemo(() => {
-    const pool = tasks.filter(
-      (t) => t.status !== 'done' && !t.schedule?.some((s) => s.date === date)
-    );
+    const scheduledTaskIds = new Set(slotsToday.filter((s) => s.task_id).map((s) => s.task_id));
+    const pool = tasks.filter((t) => t.status !== 'done' && !scheduledTaskIds.has(t.id));
     const free = pool.filter((t) => blockers(t, tasksById).length === 0);
     const blk  = pool.filter((t) => blockers(t, tasksById).length > 0);
     return [
       ...urgencySort(free, tasks, milestonesById),
       ...urgencySort(blk,  tasks, milestonesById),
     ];
-  }, [tasks, date, tasksById, milestonesById]);
+  }, [tasks, slotsToday, tasksById, milestonesById]);
 
-  // Build positioned blocks for the calendar.
-  const layoutedBlocks = useMemo(() => {
-    const blocks = scheduledToday.map((task) => {
-      const sched = task.schedule.find((s) => s.date === date);
-      return { task, sched, startTime: sched.start_time, endTime: sched.end_time };
-    });
-    return layoutBlocks(blocks);
-  }, [scheduledToday, date]);
+  // ---- live drag preview (create / move / resize) ----
+  // `live[slotId]` or `live.__draft` overrides {start_time, end_time} while dragging.
+  const [live, setLive] = useState({});
 
-  // ---- drag handlers ----
+  useEffect(() => {
+    function onMove(e) {
+      const d = dragRef.current;
+      if (!d) return;
+      const rect = eventsRef.current.getBoundingClientRect();
+      const y = e.clientY - rect.top;
 
-  function onPersonDragStart(e, person) {
-    dragRef.current = { type: 'person', personId: person.id };
-    e.dataTransfer.effectAllowed = 'copy';
-  }
-
-  function onUnscheduledDragStart(e, task) {
-    dragRef.current = {
-      type: 'new-task',
-      taskId: task.id,
-      durationHours: task.estimate_hours || 1,
-      offsetY: 0,
-    };
-    e.dataTransfer.effectAllowed = 'copy';
-  }
-
-  function onBlockDragStart(e, task) {
-    e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    dragRef.current = {
-      type: 'task',
-      taskId: task.id,
-      durationHours: task.estimate_hours || 1,
-      offsetY: e.clientY - rect.top,
-    };
-    e.dataTransfer.effectAllowed = 'move';
-  }
-
-  function onCalDragOver(e) {
-    e.preventDefault();
-    const drag = dragRef.current;
-    if (!drag || drag.type === 'person') return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const rawY = e.clientY - rect.top - (drag.offsetY || 0);
-    setPreview({ startTime: yToTime(rawY, drag.durationHours), durationHours: drag.durationHours });
-  }
-
-  function onCalDragLeave(e) {
-    if (!e.currentTarget.contains(e.relatedTarget)) setPreview(null);
-  }
-
-  async function onCalDrop(e) {
-    e.preventDefault();
-    setPreview(null);
-    const drag = dragRef.current;
-    dragRef.current = null;
-    if (!drag || drag.type === 'person') return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const rawY = e.clientY - rect.top - (drag.offsetY || 0);
-    const startTime = yToTime(rawY, drag.durationHours);
-    const endTime   = addHoursToTime(startTime, drag.durationHours);
-    await mutate('PUT', '/api/schedule', { task_id: drag.taskId, date, start_time: startTime, end_time: endTime });
-  }
-
-  function onTaskDragOver(e, taskId) {
-    e.preventDefault();
-    const drag = dragRef.current;
-    if (drag?.type === 'person') {
-      e.stopPropagation(); // keep the person-drop on task, not calendar
-      setDragOverTask(taskId);
+      if (d.mode === 'create') {
+        const a = timeToMinNorm(yToTime(Math.min(y, d.anchorY)));
+        let b = timeToMinNorm(yToTime(Math.max(y, d.anchorY)));
+        if (b - a < MIN_DURATION_H * 60) b = a + MIN_DURATION_H * 60;
+        setLive({ __draft: { start_time: minutesToTime(a), end_time: minutesToTime(b) } });
+      } else if (d.mode === 'move') {
+        const deltaMin = Math.round(((y - d.anchorY) / PX_PER_HOUR) * 60 / 30) * 30;
+        const dur = timeToMinNorm(d.originEnd) - timeToMinNorm(d.originStart);
+        let newStartOffset = (timeToMinNorm(d.originStart) - START_HOUR * 60) + deltaMin;
+        newStartOffset = Math.max(0, Math.min(newStartOffset, TOTAL_H * 60 - dur));
+        setLive({ [d.slotId]: { start_time: minutesToTime(START_HOUR * 60 + newStartOffset), end_time: minutesToTime(START_HOUR * 60 + newStartOffset + dur) } });
+      } else if (d.mode === 'resize-top') {
+        const newStartMin = Math.max(0, Math.min(timeToMinNorm(yToTime(y)) - START_HOUR * 60, timeToMinNorm(d.originEnd) - START_HOUR * 60 - MIN_DURATION_H * 60));
+        setLive({ [d.slotId]: { start_time: minutesToTime(START_HOUR * 60 + newStartMin), end_time: d.originEnd } });
+      } else if (d.mode === 'resize-bottom') {
+        const newEndMin = Math.max(timeToMinNorm(d.originStart) - START_HOUR * 60 + MIN_DURATION_H * 60, Math.min(timeToMinNorm(yToTime(y)) - START_HOUR * 60, TOTAL_H * 60));
+        setLive({ [d.slotId]: { start_time: d.originStart, end_time: minutesToTime(START_HOUR * 60 + newEndMin) } });
+      }
     }
-    // task/new-task drags bubble up to cal for preview
-  }
 
-  function onTaskDragLeave(e) {
-    if (!e.currentTarget.contains(e.relatedTarget)) setDragOverTask(null);
-  }
-
-  async function onTaskDrop(e, task) {
-    const drag = dragRef.current;
-    if (!drag) return;
-    if (drag.type === 'person') {
-      e.preventDefault();
-      e.stopPropagation();
-      setDragOverTask(null);
+    async function onUp() {
+      const d = dragRef.current;
       dragRef.current = null;
-      if (task.assignments.some((a) => a.person_id === drag.personId && a.assigned_date === date)) return;
-      const warnings = [];
-      if (blockers(task, tasksById).length)
-        warnings.push(`Bloqueada por: ${blockers(task, tasksById).map((b) => b.title).join(', ')}`);
-      if (warnings.length) showToast?.('⚠ ' + warnings.join(' · '), 'warn');
-      await mutate('POST', '/api/assign', { task_id: task.id, person_id: drag.personId, date });
+      if (!d) return;
+      if (d.mode === 'create') {
+        const draft = live.__draft;
+        setLive({});
+        if (draft && timeToMinNorm(draft.end_time) - timeToMinNorm(draft.start_time) >= MIN_DURATION_H * 60 - 1) {
+          await mutate('POST', '/api/slots', { date, start_time: draft.start_time, end_time: draft.end_time, task_id: null });
+        }
+      } else if (d.slotId) {
+        const l = live[d.slotId];
+        setLive({});
+        if (l) await mutate('PUT', `/api/slots/${d.slotId}`, { start_time: l.start_time, end_time: l.end_time });
+      }
     }
-    // task-type drags bubble to cal drop handler
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, date, mutate]);
+
+  // Adds a fresh 1h empty slot after the last slot today (or at 09:00 if
+  // there are none). Exists so a coordinator can deliberately create a slot
+  // that overlaps another: dragging on the background can't start a new
+  // slot on top of an existing one, so this button is the way in. The new
+  // slot can then be dragged/resized into the exact overlapping time desired.
+  async function addDefaultSlot() {
+    const calStart = START_HOUR * 60;
+    const calEnd = (START_HOUR + TOTAL_H) * 60;
+    const defaultStart = calStart + 3 * 60; // 09:00
+    let start = slotsToday.length
+      ? Math.max(...slotsToday.map((s) => timeToMinNorm(s.end_time)))
+      : defaultStart;
+    start = Math.min(start, calEnd - 60);
+    await mutate('POST', '/api/slots', {
+      date, start_time: minutesToTime(start), end_time: minutesToTime(start + 60), task_id: null,
+    });
+  }
+
+  // Adds an empty slot at the exact same start/end as an existing one, so it
+  // renders side by side with it. This is the explicit way to double-book a
+  // time slot — no need to find a sliver of empty background to drag from.
+  async function addParallelSlot(slot) {
+    await mutate('POST', '/api/slots', {
+      date, start_time: slot.start_time, end_time: slot.end_time, task_id: null,
+    });
+  }
+
+  function startCreate(e) {
+    if (e.target.closest('.slot-block')) return; // clicks on an existing slot don't start a new one
+    const rect = eventsRef.current.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    dragRef.current = { mode: 'create', anchorY: y };
+    const t0 = timeToMinNorm(yToTime(y));
+    setLive({ __draft: { start_time: minutesToTime(t0), end_time: minutesToTime(t0 + 30) } });
+  }
+
+  function startMove(e, slot) {
+    e.stopPropagation();
+    const rect = eventsRef.current.getBoundingClientRect();
+    dragRef.current = {
+      mode: 'move', slotId: slot.id,
+      anchorY: e.clientY - rect.top, originStart: slot.start_time, originEnd: slot.end_time,
+    };
+  }
+
+  function startResize(e, slot, edge) {
+    e.stopPropagation();
+    dragRef.current = {
+      mode: edge === 'top' ? 'resize-top' : 'resize-bottom',
+      slotId: slot.id, originStart: slot.start_time, originEnd: slot.end_time,
+    };
+  }
+
+  // ---- sidebar task drag → drop onto the calendar creates+assigns a slot in one step ----
+  function onSidebarTaskDragStart(e, task) {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('text/plain', String(task.id));
+  }
+
+  async function onCalendarDrop(e) {
+    e.preventDefault();
+    const taskId = Number(e.dataTransfer.getData('text/plain'));
+    if (!taskId) return;
+    const task = tasksById.get(taskId);
+    if (!task) return;
+    const rect = eventsRef.current.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const durationH = Math.max(task.estimate_hours || 1, MIN_DURATION_H);
+    const start = timeToMinNorm(yToTime(y));
+    const end = start + Math.round(durationH * 2) * 30;
+    await mutate('POST', '/api/slots', {
+      date, start_time: minutesToTime(start), end_time: minutesToTime(end), task_id: taskId,
+    });
+  }
+
+  async function onSlotDrop(e, slot) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (slot.task_id) return; // don't clobber an already-assigned slot
+    const taskId = Number(e.dataTransfer.getData('text/plain'));
+    if (!taskId) return;
+    await mutate('PUT', `/api/slots/${slot.id}`, { task_id: taskId });
   }
 
   const hours     = Array.from({ length: TOTAL_H + 1 }, (_, i) => START_HOUR + i); // 6..26
   const halfHours = Array.from({ length: TOTAL_H },     (_, i) => START_HOUR + i);
+  const candidateTasks = tasks.filter((t) => t.status !== 'done');
+
+  const layouted = useMemo(() => {
+    const slots = slotsToday.map((s) => ({ ...s, ...(live[s.id] || {}) }));
+    return layoutBlocks(slots);
+  }, [slotsToday, live]);
+  const draft = live.__draft || null;
 
   return (
     <div className="view schedule-page">
@@ -212,38 +266,21 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
           Día <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
         <span className="muted">{formatDate(date)}</span>
+        <button className="primary" onClick={() => setCreatingTask(true)}>+ Nueva tarea</button>
+        <button className="mini" onClick={addDefaultSlot} title="Añade un horario nuevo (útil para solapar con otro arrastrándolo después)">+ horario</button>
         <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
-          Arrastra tareas al horario · arrastra personas a las tareas
+          Arrastra en el calendario para crear un horario · arrastra tareas para asignarlas
         </span>
       </div>
 
-      <div className="schedule-layout">
-        {/* ---- Sidebar ---- */}
-        <div className="schedule-sidebar">
-          <div className="col-label">Personas</div>
-          {people.map((p) => {
-            const load = loadForDay(tasks, p.id, date);
-            return (
-              <div
-                key={p.id}
-                className="sidebar-person"
-                draggable
-                onDragStart={(e) => onPersonDragStart(e, p)}
-                title="Arrastra a una tarea del horario para asignar"
-              >
-                <div className="person-head">
-                  <span className="drag-handle">⠿</span>
-                  <b className="person-name">{p.name}</b>
-                  <span className="load" title="Horas asignadas hoy">
-                    {fmtHours(load)}h
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-          {people.length === 0 && <p className="empty" style={{ fontSize: 12 }}>Añade personas en Equipo.</p>}
+      {creatingTask && (
+        <TaskForm task={null} state={state} mutate={mutate} onClose={() => setCreatingTask(false)} />
+      )}
 
-          <div className="col-label" style={{ marginTop: 14 }}>Sin horario</div>
+      <div className="schedule-layout">
+        {/* ---- Sidebar: unscheduled tasks + per-person load today ---- */}
+        <div className="schedule-sidebar">
+          <div className="col-label">Sin horario hoy</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {unscheduled.map((t) => {
               const blk = blockers(t, tasksById);
@@ -253,8 +290,8 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                   key={t.id}
                   className={`sidebar-task${blk.length ? ' blocked' : ''}`}
                   draggable
-                  onDragStart={(e) => onUnscheduledDragStart(e, t)}
-                  title={`Arrastra al horario · ${fmtHours(t.estimate_hours || 0)}h estimadas`}
+                  onDragStart={(e) => onSidebarTaskDragStart(e, t)}
+                  title={`Arrastra al calendario · ${fmtHours(t.estimate_hours || 0)}h estimadas`}
                 >
                   <div className="sidebar-task-name">
                     {!!t.is_critical && <span className="crit">● </span>}
@@ -265,6 +302,18 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                     {m ? ` · ${m.name}` : ''}
                     {blk.length ? ' · ⛔' : ''}
                   </div>
+                  <select
+                    className="sidebar-task-assignee"
+                    value={t.assignee_id || ''}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => mutate('PUT', `/api/tasks/${t.id}`, { assignee_id: e.target.value ? Number(e.target.value) : null })}
+                  >
+                    <option value="">Sin asignar</option>
+                    {people.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
                 </div>
               );
             })}
@@ -272,152 +321,156 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
               <p className="empty" style={{ fontSize: 12 }}>Todo planificado.</p>
             )}
           </div>
+
+          {people.length > 0 && (
+            <>
+              <div className="col-label" style={{ marginTop: 14 }}>Carga hoy</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {people.map((p) => {
+                  const load = loadForDay(slotsToday, tasksById, p.id, date);
+                  return (
+                    <div key={p.id} className="row space-between" style={{ fontSize: 12 }}>
+                      <span>{p.name}</span>
+                      <span className={load > 10 ? 'load over' : 'load'}>{fmtHours(load)}h</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
 
-        {/* ---- Vertical calendar ---- */}
+        {/* ---- Shared calendar timeline ---- */}
         <div className="cal-wrap">
           <div className="cal-inner" style={{ height: CAL_HEIGHT + 40 }}>
-            {/* Time labels */}
             <div className="cal-time-col">
               {hours.map((h) => (
-                <div
-                  key={h}
-                  className="cal-hour-label"
-                  style={{ top: (h - START_HOUR) * PX_PER_HOUR }}
-                >
+                <div key={h} className="cal-hour-label" style={{ top: (h - START_HOUR) * PX_PER_HOUR }}>
                   {fmtHour(h)}
                 </div>
               ))}
             </div>
 
-            {/* Events area — drop target for scheduling tasks */}
             <div
               className="cal-events"
-              onDragOver={onCalDragOver}
-              onDragLeave={onCalDragLeave}
-              onDrop={onCalDrop}
+              ref={eventsRef}
+              onMouseDown={startCreate}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={onCalendarDrop}
             >
-              {/* Hour lines */}
               {hours.map((h) => (
-                <div
-                  key={`hl${h}`}
-                  className={`cal-hline${h === 12 ? ' midday' : h === 24 ? ' midnight' : ''}`}
-                  style={{ top: (h - START_HOUR) * PX_PER_HOUR }}
-                />
+                <div key={`hl${h}`} className={`cal-hline${h === 12 ? ' midday' : h === 24 ? ' midnight' : ''}`} style={{ top: (h - START_HOUR) * PX_PER_HOUR }} />
               ))}
-              {/* Half-hour lines */}
               {halfHours.map((h) => (
-                <div
-                  key={`hh${h}`}
-                  className="cal-hline half"
-                  style={{ top: (h - START_HOUR + 0.5) * PX_PER_HOUR }}
-                />
+                <div key={`hh${h}`} className="cal-hline half" style={{ top: (h - START_HOUR + 0.5) * PX_PER_HOUR }} />
               ))}
 
-              {/* Task blocks */}
-              {layoutedBlocks.map(({ task, sched, startTime, endTime, col, localCols }) => {
-                const top    = timeToY(startTime);
-                const height = Math.max(
-                  (timeToMin(endTime) - timeToMin(startTime)) / 60 * PX_PER_HOUR - 2,
-                  24
-                );
-                const leftPct  = (col / localCols) * 100;
-                const widthPct = (1 / localCols) * 100 - 0.5;
-                const todayAssignees = task.assignments.filter((a) => a.assigned_date === date);
-                const blk = blockers(task, tasksById);
-                const isDropTarget = dragOverTask === task.id;
+              {layouted.map((slot) => {
+                const top = timeToY(slot.start_time);
+                const height = Math.max((timeToMinNorm(slot.end_time) - timeToMinNorm(slot.start_time)) / 60 * PX_PER_HOUR - 2, 22);
+                // Expressed as left+right (not left+width): the browser derives the
+                // width itself from a single subtraction, so the two margins can't
+                // drift apart from independent calc() rounding. The outer edges of
+                // the timeline get the full gutter; between two parallel blocks each
+                // side only contributes half of the (smaller) inner gutter.
+                const leftPct = (slot.col / slot.localCols) * 100;
+                const rightPct = 100 - ((slot.col + 1) / slot.localCols) * 100;
+                const isFirstCol = slot.col === 0;
+                const isLastCol = slot.col === slot.localCols - 1;
+                const leftGutter = isFirstCol ? OUTER_GUTTER_PX : INNER_GUTTER_PX / 2;
+                const rightGutter = isLastCol ? OUTER_GUTTER_PX : INNER_GUTTER_PX / 2;
+                const task = slot.task_id ? tasksById.get(slot.task_id) : null;
+                const blk = task ? blockers(task, tasksById) : [];
+                const assignee = task?.assignee_id ? peopleById.get(task.assignee_id) : null;
 
                 return (
                   <div
-                    key={task.id}
-                    className={`cal-block st-${task.status}${!!task.is_critical ? ' critical' : ''}${isDropTarget ? ' drop-active' : ''}`}
-                    style={{ top, height, left: `${leftPct}%`, width: `${widthPct}%` }}
-                    draggable
-                    onDragStart={(e) => onBlockDragStart(e, task)}
-                    onDragOver={(e) => onTaskDragOver(e, task.id)}
-                    onDragLeave={onTaskDragLeave}
-                    onDrop={(e) => onTaskDrop(e, task)}
+                    key={slot.id}
+                    className={`cal-block slot-block${task ? ` st-${task.status}` : ' slot-empty'}${task?.is_critical ? ' critical' : ''}`}
+                    style={{
+                      top, height,
+                      left: `calc(${leftPct}% + ${leftGutter}px)`,
+                      right: `calc(${rightPct}% + ${rightGutter}px)`,
+                    }}
+                    onMouseDown={(e) => startMove(e, slot)}
+                    onDragOver={(e) => { if (!slot.task_id) e.preventDefault(); }}
+                    onDrop={(e) => onSlotDrop(e, slot)}
                   >
+                    <div className="slot-resize-handle top" onMouseDown={(e) => startResize(e, slot, 'top')} />
                     <div className="cal-block-header">
                       <span className="cal-block-title">
-                        {!!task.is_critical && <span className="crit">●</span>} {task.title}
+                        {task ? (
+                          <>{!!task.is_critical && <span className="crit">●</span>} {task.title}</>
+                        ) : (
+                          <select
+                            className="slot-task-select"
+                            value=""
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onChange={(e) => e.target.value && mutate('PUT', `/api/slots/${slot.id}`, { task_id: Number(e.target.value) })}
+                          >
+                            <option value="">+ tarea…</option>
+                            {candidateTasks.map((t) => (
+                              <option key={t.id} value={t.id}>{t.title}</option>
+                            ))}
+                          </select>
+                        )}
                       </span>
-                      <span className="cal-block-time">{startTime}–{endTime}</span>
+                      <span className="cal-block-time">{slot.start_time}–{slot.end_time}</span>
+                      <button
+                        className="mini cal-block-parallel"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); addParallelSlot(slot); }}
+                        title="Añadir horario en paralelo (misma franja horaria)"
+                      >‖+</button>
+                      <button
+                        className="mini danger cal-block-del"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); mutate('DELETE', `/api/slots/${slot.id}`); }}
+                        title="Eliminar horario"
+                      >×</button>
                     </div>
 
-                    {height >= 44 && (
+                    {height >= 40 && task && (
                       <div className="cal-block-assignees">
-                        {todayAssignees.map((a) => {
-                          const person = peopleById.get(a.person_id);
-                          if (!person) return null;
-                          return (
-                            <span key={a.person_id} className="assignee-pill">
-                              {person.name}
-                              <button
-                                className="pill-remove"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  mutate('POST', '/api/unassign', { task_id: task.id, person_id: a.person_id });
-                                }}
-                              >×</button>
-                            </span>
-                          );
-                        })}
-                        {isDropTarget && dragRef.current?.type === 'person' && (
-                          <span className="assignee-pill ghost">
-                            {peopleById.get(dragRef.current.personId)?.name}
-                          </span>
-                        )}
-                        {todayAssignees.length === 0 && !isDropTarget && (
-                          <span className="cal-drop-hint">Suelta persona aquí</span>
-                        )}
+                        <span className="assignee-pill">{assignee ? assignee.name : 'Sin asignar'}</span>
                       </div>
                     )}
 
-                    {blk.length > 0 && (
+                    {height >= 40 && task && blk.length > 0 && (
                       <div className="cal-block-blocked">⛔ {blk.map((b) => b.title).join(', ')}</div>
                     )}
 
-                    <div className="cal-block-actions">
-                      {task.status === 'assigned' && (
-                        <button className="mini" onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'in_progress' }); }}>▶ Empezar</button>
-                      )}
-                      {task.status === 'in_progress' && (
-                        <button className="mini ok" onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'done' }); }}>✔ Hecha</button>
-                      )}
-                      {task.status === 'done' && (
-                        <button className="mini" onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'in_progress' }); }}>↩ Reabrir</button>
-                      )}
-                      {(task.status === 'assigned' || task.status === 'in_progress') && (
-                        <button className="mini danger" onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'blocked' }); }}>⛔ Bloquear</button>
-                      )}
-                      <button
-                        className="mini"
-                        onClick={(e) => { e.stopPropagation(); mutate('PUT', '/api/schedule', { task_id: task.id, date, start_time: null }); }}
-                        title="Quitar del horario"
-                      >↑ Sin hora</button>
-                    </div>
+                    {height >= 40 && task && (
+                      <div className="cal-block-actions">
+                        {task.status === 'assigned' && (
+                          <button className="mini" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'in_progress' }); }}>▶</button>
+                        )}
+                        {task.status === 'in_progress' && (
+                          <button className="mini ok" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'done' }); }}>✔</button>
+                        )}
+                        <button className="mini" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/slots/${slot.id}`, { task_id: null }); }} title="Quitar tarea del horario">↩</button>
+                      </div>
+                    )}
+
+                    <div className="slot-resize-handle bottom" onMouseDown={(e) => startResize(e, slot, 'bottom')} />
                   </div>
                 );
               })}
 
-              {/* Drop preview ghost */}
-              {preview && (
+              {draft && (
                 <div
                   className="cal-block preview"
                   style={{
-                    top: timeToY(preview.startTime),
-                    height: Math.max(preview.durationHours * PX_PER_HOUR - 2, 24),
-                    left: 0,
-                    right: 4,
+                    top: timeToY(draft.start_time),
+                    height: Math.max((timeToMinNorm(draft.end_time) - timeToMinNorm(draft.start_time)) / 60 * PX_PER_HOUR - 2, 22),
+                    left: `${OUTER_GUTTER_PX}px`,
+                    right: `${OUTER_GUTTER_PX}px`,
                   }}
                 />
               )}
 
-              {scheduledToday.length === 0 && (
-                <div className="cal-empty-hint">
-                  Arrastra tareas del panel izquierdo para planificar el día
-                </div>
+              {slotsToday.length === 0 && !draft && (
+                <div className="cal-empty-hint">Arrastra en el calendario para crear un horario</div>
               )}
             </div>
           </div>

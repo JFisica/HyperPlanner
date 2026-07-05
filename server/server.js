@@ -1,4 +1,6 @@
 const express = require('express');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
 const db = require('./db');
@@ -6,8 +8,120 @@ const { wouldCreateCycle } = require('./graph');
 
 const app = express();
 app.use(express.json());
+app.set('trust proxy', 1);
+
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'ehw-2026-dev-secret-change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.COOKIE_SECURE === '1',
+    maxAge: 1000 * 60 * 60 * 24 * 21, // 21 days, comfortably covers the event
+  },
+}));
 
 const PORT = process.env.PORT || 3000;
+
+// ---------- auth ----------
+
+function currentUser(req) {
+  if (!req.session.userId) return null;
+  return db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(req.session.userId) || null;
+}
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(String(username || '').trim());
+  if (!user || !bcrypt.compareSync(String(password || ''), user.password_hash)) {
+    return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+  }
+  req.session.regenerate((err) => {
+    if (err) return res.status(500).json({ error: 'Error de sesión' });
+    req.session.userId = user.id;
+    res.json({ id: user.id, username: user.username, role: user.role });
+  });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+app.get('/api/me', (req, res) => {
+  const user = currentUser(req);
+  if (!user) return res.status(401).json({ error: 'No autenticado' });
+  res.json(user);
+});
+
+// Everything below requires a logged-in user.
+app.use('/api', (req, res, next) => {
+  const user = currentUser(req);
+  if (!user) return res.status(401).json({ error: 'No autenticado' });
+  req.user = user;
+  next();
+});
+
+function requireAdmin(req, res, next) {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo un administrador puede hacer esto' });
+  next();
+}
+
+// ---------- users (admin only) ----------
+
+const publicUser = (u) => ({ id: u.id, username: u.username, role: u.role, created_at: u.created_at });
+const listUsers = () => db.prepare('SELECT * FROM users ORDER BY username').all().map(publicUser);
+
+app.get('/api/users', requireAdmin, (req, res) => res.json(listUsers()));
+
+app.post('/api/users', requireAdmin, (req, res) => {
+  const { username, password, role = 'coordinator' } = req.body;
+  if (!username || !username.trim()) return res.status(400).json({ error: 'Falta el usuario' });
+  if (!password || password.length < 4) return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
+  if (!['admin', 'coordinator'].includes(role)) return res.status(400).json({ error: 'Rol inválido' });
+  try {
+    db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)')
+      .run(username.trim(), bcrypt.hashSync(password, 10), role);
+  } catch {
+    return res.status(400).json({ error: 'Ese usuario ya existe' });
+  }
+  res.json(listUsers());
+});
+
+app.put('/api/users/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const { password, role } = req.body;
+  if (role !== undefined && !['admin', 'coordinator'].includes(role)) {
+    return res.status(400).json({ error: 'Rol inválido' });
+  }
+  if (role === 'coordinator' && user.role === 'admin') {
+    const admins = db.prepare("SELECT COUNT(*) c FROM users WHERE role = 'admin'").get().c;
+    if (admins <= 1) return res.status(400).json({ error: 'Debe quedar al menos un administrador' });
+  }
+  if (password !== undefined && password.length < 4) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
+  }
+  db.prepare('UPDATE users SET password_hash = ?, role = ? WHERE id = ?').run(
+    password ? bcrypt.hashSync(password, 10) : user.password_hash,
+    role !== undefined ? role : user.role,
+    id
+  );
+  res.json(listUsers());
+});
+
+app.delete('/api/users/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (user?.role === 'admin') {
+    const admins = db.prepare("SELECT COUNT(*) c FROM users WHERE role = 'admin'").get().c;
+    if (admins <= 1) return res.status(400).json({ error: 'Debe quedar al menos un administrador' });
+  }
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  res.json(listUsers());
+});
 
 // ---------- state ----------
 
@@ -19,8 +133,7 @@ function getState() {
   const personSkills = db.prepare('SELECT * FROM person_skills').all();
   const taskSkills = db.prepare('SELECT * FROM task_skills').all();
   const taskDeps = db.prepare('SELECT * FROM task_deps').all();
-  const taskAssignments = db.prepare('SELECT * FROM task_assignments').all();
-  const taskSchedule = db.prepare('SELECT * FROM task_schedule').all();
+  const timeSlots = db.prepare('SELECT * FROM time_slots ORDER BY date, start_time').all();
   const settingsRows = db.prepare('SELECT * FROM settings').all();
   const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
 
@@ -30,15 +143,14 @@ function getState() {
   for (const t of tasks) {
     t.skill_ids = taskSkills.filter((x) => x.task_id === t.id).map((x) => x.skill_id);
     t.dep_ids = taskDeps.filter((x) => x.task_id === t.id).map((x) => x.depends_on_task_id);
-    t.assignments = taskAssignments.filter((x) => x.task_id === t.id);
-    t.schedule = taskSchedule.filter((x) => x.task_id === t.id);
   }
-  return { people, skills, milestones, tasks, settings };
+  return { people, skills, milestones, tasks, time_slots: timeSlots, settings };
 }
 
 const sendState = (res) => res.json(getState());
 
 app.get('/api/state', (req, res) => sendState(res));
+
 // ---------- settings ----------
 
 app.put('/api/settings', (req, res) => {
@@ -143,6 +255,7 @@ function taskFields(body, current = {}) {
     status: body.status !== undefined ? body.status : (current.status || 'backlog'),
     is_critical: body.is_critical !== undefined ? (body.is_critical ? 1 : 0) : (current.is_critical || 0),
     location: body.location !== undefined ? body.location : (current.location || ''),
+    assignee_id: body.assignee_id !== undefined ? (body.assignee_id || null) : (current.assignee_id ?? null),
   };
 }
 
@@ -189,8 +302,8 @@ app.post('/api/tasks', (req, res) => {
   const { skill_ids, dep_ids } = req.body;
   const tx = db.transaction(() => {
     const { lastInsertRowid: id } = db
-      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location)
-                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location)`)
+      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location, assignee_id)
+                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location, @assignee_id)`)
       .run(f);
     const err = validateDeps(Number(id), dep_ids);
     if (err) throw new Error(err);
@@ -217,7 +330,7 @@ app.put('/api/tasks/:id', (req, res) => {
   const tx = db.transaction(() => {
     db.prepare(`UPDATE tasks SET title=@title, description=@description, milestone_id=@milestone_id,
                 estimate_hours=@estimate_hours, status=@status, is_critical=@is_critical,
-                location=@location, updated_at=datetime('now') WHERE id=@id`)
+                location=@location, assignee_id=@assignee_id, updated_at=datetime('now') WHERE id=@id`)
       .run({ ...f, id });
     setTaskRelations(id, skill_ids, dep_ids);
   });
@@ -239,8 +352,8 @@ app.post('/api/tasks/:id/copy', (req, res) => {
   const tx = db.transaction(() => {
     const copy = cloneTask(current);
     const { lastInsertRowid: copyId } = db
-      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location)
-                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location)`)
+      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location, assignee_id)
+                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location, @assignee_id)`)
       .run(copy);
     setTaskRelations(Number(copyId), skillIds, depIds);
   });
@@ -248,48 +361,59 @@ app.post('/api/tasks/:id/copy', (req, res) => {
   sendState(res);
 });
 
-// ---------- assignment ----------
+// ---------- time slots ----------
+// A slot is a standalone (date, start, end) block on the shared calendar.
+// A task can be attached to it (task_id) or it can sit empty; the
+// responsible person is whatever the attached task's assignee_id says.
+// Overlapping slots are allowed (the coordinator decides).
 
-app.post('/api/assign', (req, res) => {
-  const { task_id, person_id, date } = req.body;
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task_id);
-  if (!task) return res.status(404).json({ error: 'Tarea no encontrada' });
-  if (!db.prepare('SELECT 1 FROM people WHERE id = ?').get(person_id)) {
-    return res.status(404).json({ error: 'Persona no encontrada' });
+function syncTaskStatusForSlot(taskId) {
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  if (!task) return;
+  const count = db.prepare('SELECT COUNT(*) c FROM time_slots WHERE task_id = ?').get(taskId).c;
+  if (count > 0 && task.status === 'backlog') {
+    db.prepare("UPDATE tasks SET status = 'assigned', updated_at = datetime('now') WHERE id = ?").run(taskId);
+  } else if (count === 0 && task.status === 'assigned') {
+    db.prepare("UPDATE tasks SET status = 'backlog', updated_at = datetime('now') WHERE id = ?").run(taskId);
   }
-  if (!date) return res.status(400).json({ error: 'Falta la fecha' });
-  db.prepare('INSERT OR REPLACE INTO task_assignments (task_id, person_id, assigned_date) VALUES (?, ?, ?)')
-    .run(task_id, person_id, date);
-  if (task.status === 'backlog') {
-    db.prepare(`UPDATE tasks SET status = 'assigned', updated_at = datetime('now') WHERE id = ?`).run(task_id);
-  }
-  sendState(res);
-});
+}
 
-// Set or clear the time slot for a task on a specific day.
-app.put('/api/schedule', (req, res) => {
-  const { task_id, date, start_time, end_time } = req.body;
-  if (!db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(task_id))
+app.post('/api/slots', (req, res) => {
+  const { date, start_time, end_time, task_id = null } = req.body;
+  if (!date || !start_time || !end_time) return res.status(400).json({ error: 'Faltan datos del horario' });
+  if (task_id && !db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(task_id)) {
     return res.status(404).json({ error: 'Tarea no encontrada' });
-  if (!start_time) {
-    db.prepare('DELETE FROM task_schedule WHERE task_id = ? AND date = ?').run(task_id, date);
-  } else {
-    db.prepare('INSERT OR REPLACE INTO task_schedule (task_id, date, start_time, end_time) VALUES (?, ?, ?, ?)')
-      .run(task_id, date, start_time, end_time);
   }
+  const { lastInsertRowid: id } = db
+    .prepare('INSERT INTO time_slots (date, start_time, end_time, task_id) VALUES (?, ?, ?, ?)')
+    .run(date, start_time, end_time, task_id || null);
+  if (task_id) syncTaskStatusForSlot(task_id);
   sendState(res);
 });
 
-// Removes one person from a task. If no assignees remain and status was 'assigned', reverts to 'backlog'.
-app.post('/api/unassign', (req, res) => {
-  const { task_id, person_id } = req.body;
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task_id);
-  if (!task) return res.status(404).json({ error: 'Tarea no encontrada' });
-  db.prepare('DELETE FROM task_assignments WHERE task_id = ? AND person_id = ?').run(task_id, person_id);
-  const remaining = db.prepare('SELECT COUNT(*) c FROM task_assignments WHERE task_id = ?').get(task_id).c;
-  if (remaining === 0 && task.status === 'assigned') {
-    db.prepare(`UPDATE tasks SET status = 'backlog', updated_at = datetime('now') WHERE id = ?`).run(task_id);
+app.put('/api/slots/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const slot = db.prepare('SELECT * FROM time_slots WHERE id = ?').get(id);
+  if (!slot) return res.status(404).json({ error: 'Horario no encontrado' });
+  const start_time = req.body.start_time !== undefined ? req.body.start_time : slot.start_time;
+  const end_time = req.body.end_time !== undefined ? req.body.end_time : slot.end_time;
+  const newTaskId = req.body.task_id !== undefined ? (req.body.task_id || null) : slot.task_id;
+  if (newTaskId && !db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(newTaskId)) {
+    return res.status(404).json({ error: 'Tarea no encontrada' });
   }
+  db.prepare("UPDATE time_slots SET start_time = ?, end_time = ?, task_id = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(start_time, end_time, newTaskId, id);
+  const prevTaskId = slot.task_id;
+  if (newTaskId) syncTaskStatusForSlot(newTaskId);
+  if (prevTaskId && prevTaskId !== newTaskId) syncTaskStatusForSlot(prevTaskId);
+  sendState(res);
+});
+
+app.delete('/api/slots/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const slot = db.prepare('SELECT * FROM time_slots WHERE id = ?').get(id);
+  db.prepare('DELETE FROM time_slots WHERE id = ?').run(id);
+  if (slot?.task_id) syncTaskStatusForSlot(slot.task_id);
   sendState(res);
 });
 

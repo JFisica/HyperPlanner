@@ -297,6 +297,7 @@ tr.dim td { opacity: 0.45; }
 .sidebar-task.blocked { border-left: 3px solid var(--danger); }
 .sidebar-task-name { font-size: 12px; font-weight: 600; line-height: 1.3; }
 .sidebar-task-meta { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.sidebar-task-assignee { width: 100%; margin-top: 4px; font-size: 11px; padding: 2px 4px; }
 
 /* Calendar */
 .cal-wrap {
@@ -516,15 +517,39 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
 .pin-gate h1 { font-size: 20px; text-align: center; color: #fff; }
 .pin-gate h1 span { color: var(--accent); }
 .pin-gate input {
-  font-size: 24px;
-  text-align: center;
-  letter-spacing: 0.4em;
   background: var(--panel2);
   border-color: var(--border2);
   border-radius: 8px;
   padding: 10px;
 }
 .pin-gate button { width: 100%; padding: 10px; font-size: 15px; font-weight: 700; }
+.login-label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.login-error { color: var(--danger); font-size: 13px; text-align: center; }
+
+/* ---------- shared schedule calendar (slots) ---------- */
+
+.cal-events { cursor: crosshair; user-select: none; }
+
+.slot-block { cursor: grab; }
+.slot-block:active { cursor: grabbing; }
+.slot-block.slot-empty { background: #14141f; border-left-color: var(--border2); color: var(--muted); border-style: dashed; }
+.slot-task-select { width: 100%; max-width: 100%; font-size: 11px; padding: 1px 2px; }
+.cal-block-del, .cal-block-parallel {
+  flex-shrink: 0;
+  padding: 0 5px;
+  line-height: 1.3;
+  font-size: 12px;
+}
+
+.slot-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+.slot-resize-handle.top { top: 0; }
+.slot-resize-handle.bottom { bottom: 0; }
 
 /* ---------- report ---------- */
 

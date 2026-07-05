@@ -48,8 +48,8 @@ function layoutBlocks(blocks) {
   });
 }
 
-export default function Report({ state, date, setDate, isPublic = false }) {
-  const { people, tasks, milestones } = state;
+export default function Report({ state, date, setDate }) {
+  const { people, tasks, milestones, time_slots } = state;
   const ref = useRef(null);
   const [exporting, setExporting] = useState(false);
 
@@ -57,26 +57,24 @@ export default function Report({ state, date, setDate, isPublic = false }) {
   const milestonesById = useMemo(() => byId(milestones), [milestones]);
   const dLeft = daysUntilDemo(date);
 
-  const layoutedBlocks = useMemo(() => {
-    const blocks = tasks
-      .filter((t) => t.schedule?.some((s) => s.date === date))
-      .map((task) => {
-        const sched = task.schedule.find((s) => s.date === date);
-        return { task, startTime: sched.start_time, endTime: sched.end_time };
-      });
-    return layoutBlocks(blocks);
-  }, [tasks, date]);
+  const slotsToday = useMemo(() => time_slots.filter((s) => s.date === date), [time_slots, date]);
 
-  const unscheduledAssigned = useMemo(() =>
-    tasks.filter((t) =>
-      t.assignments.some((a) => a.assigned_date === date) &&
-      !t.schedule?.some((s) => s.date === date)
-    ),
-    [tasks, date]
-  );
+  const layoutedBlocks = useMemo(() => {
+    const blocks = slotsToday
+      .filter((s) => s.task_id)
+      .map((s) => ({ slot: s, task: tasks.find((t) => t.id === s.task_id), startTime: s.start_time, endTime: s.end_time }))
+      .filter((b) => b.task);
+    return layoutBlocks(blocks);
+  }, [slotsToday, tasks]);
+
+  // Tasks with an assignee but no time slot today (still need to be picked up).
+  const unscheduledAssigned = useMemo(() => {
+    const scheduledTaskIds = new Set(slotsToday.filter((s) => s.task_id).map((s) => s.task_id));
+    return tasks.filter((t) => t.assignee_id && t.status !== 'done' && !scheduledTaskIds.has(t.id));
+  }, [tasks, slotsToday]);
 
   const unassignedPeople = people.filter((p) =>
-    !tasks.some((t) => t.assignments.some((a) => a.person_id === p.id && a.assigned_date === date))
+    !slotsToday.some((s) => s.task_id && tasks.find((t) => t.id === s.task_id)?.assignee_id === p.id)
   );
 
   async function exportPNG() {
@@ -124,11 +122,6 @@ export default function Report({ state, date, setDate, isPublic = false }) {
         <button className="primary" onClick={exportPNG} disabled={exporting}>
           {exporting ? 'Exportando…' : '⬇ Exportar PNG'}
         </button>
-        {!isPublic && (
-          <a className="muted" href={`/parte?date=${date}`} target="_blank" rel="noreferrer">
-            enlace público ↗
-          </a>
-        )}
       </div>
 
       <div className="report" ref={ref}>
@@ -170,7 +163,7 @@ export default function Report({ state, date, setDate, isPublic = false }) {
                 />
               ))}
 
-              {layoutedBlocks.map(({ task, startTime, endTime, col, localCols }) => {
+              {layoutedBlocks.map(({ slot, task, startTime, endTime, col, localCols }) => {
                 const top    = timeToY(startTime);
                 const height = Math.max(
                   (timeToMin(endTime) - timeToMin(startTime)) / 60 * PX_PER_HOUR - 2,
@@ -178,12 +171,12 @@ export default function Report({ state, date, setDate, isPublic = false }) {
                 );
                 const leftPct  = (col / localCols) * 100;
                 const widthPct = (1 / localCols) * 100 - 0.4;
-                const todayAssignees = task.assignments.filter((a) => a.assigned_date === date);
+                const person = task.assignee_id ? peopleById.get(task.assignee_id) : null;
                 const m = task.milestone_id && milestonesById.get(task.milestone_id);
 
                 return (
                   <div
-                    key={task.id}
+                    key={slot.id}
                     className={`cal-block st-${task.status}${!!task.is_critical ? ' critical' : ''}`}
                     style={{ top, height, left: `${leftPct}%`, width: `${widthPct}%` }}
                   >
@@ -196,14 +189,9 @@ export default function Report({ state, date, setDate, isPublic = false }) {
                     </div>
                     {height >= 38 && (
                       <div className="cal-block-assignees">
-                        {todayAssignees.map((a) => (
-                          <span key={a.person_id} className="assignee-pill">
-                            {peopleById.get(a.person_id)?.name}
-                          </span>
-                        ))}
-                        {todayAssignees.length === 0 && (
-                          <span className="cal-drop-hint">Sin asignar</span>
-                        )}
+                        {person
+                          ? <span className="assignee-pill">{person.name}</span>
+                          : <span className="cal-drop-hint">Sin asignar</span>}
                       </div>
                     )}
                     {m && height >= 56 && (
@@ -225,16 +213,13 @@ export default function Report({ state, date, setDate, isPublic = false }) {
           <div className="report-unscheduled">
             <div className="report-unscheduled-title">Sin horario</div>
             {unscheduledAssigned.map((t) => {
-              const assignees = t.assignments
-                .filter((a) => a.assigned_date === date)
-                .map((a) => peopleById.get(a.person_id)?.name)
-                .filter(Boolean);
+              const assignee = t.assignee_id && peopleById.get(t.assignee_id);
               return (
                 <div key={t.id} className="report-unscheduled-item">
                   <span>{!!t.is_critical && '● '}{t.title}{t.status === 'done' ? ' ✔' : ''}</span>
                   <span className="muted">
                     {fmtHours(t.estimate_hours || 0)}h
-                    {assignees.length ? ` · ${assignees.join(', ')}` : ''}
+                    {assignee ? ` · ${assignee.name}` : ''}
                   </span>
                 </div>
               );

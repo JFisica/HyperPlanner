@@ -81,15 +81,29 @@ export function urgencySort(tasks, allTasks, milestonesById) {
   });
 }
 
-// Tasks where person has an assignment on that date.
-export function tasksForPersonDay(tasks, personId, date) {
-  return tasks.filter((t) =>
-    t.assignments.some((a) => a.person_id === personId && a.assigned_date === date)
-  );
+export function timeToMinutes(t) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
 }
 
-export function loadForDay(tasks, personId, date) {
-  return tasksForPersonDay(tasks, personId, date).reduce((s, t) => s + (t.estimate_hours || 0), 0);
+export function slotDurationHours(slot) {
+  return (timeToMinutes(slot.end_time) - timeToMinutes(slot.start_time)) / 60;
+}
+
+// Slots for a given date whose attached task is assigned to this person.
+// There's no person_id on a slot: the responsible person is whoever the
+// attached task's assignee_id says.
+export function slotsForPersonDay(slots, tasksById, personId, date) {
+  return slots.filter((s) => {
+    if (s.date !== date || !s.task_id) return false;
+    return tasksById.get(s.task_id)?.assignee_id === personId;
+  });
+}
+
+// Total scheduled hours for a person on a date, from their time slots
+// (independent of any task's estimate_hours).
+export function loadForDay(slots, tasksById, personId, date) {
+  return slotsForPersonDay(slots, tasksById, personId, date).reduce((sum, s) => sum + slotDurationHours(s), 0);
 }
 
 export function fmtHours(h) {

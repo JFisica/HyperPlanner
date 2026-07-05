@@ -11,7 +11,6 @@ export default function Backlog({ state, mutate }) {
   const tasksById = useMemo(() => byId(tasks), [tasks]);
   const milestonesById = useMemo(() => byId(milestones), [milestones]);
   const skillsById = useMemo(() => byId(skills), [skills]);
-  const peopleById = useMemo(() => byId(people), [people]);
 
   const filtered = tasks.filter(
     (t) =>
@@ -62,7 +61,7 @@ export default function Backlog({ state, mutate }) {
               <th>h</th>
               <th>Skills</th>
               <th>Estado</th>
-              <th>Asignadas a</th>
+              <th>Asignada a</th>
               <th>Bloqueada por</th>
               <th></th>
             </tr>
@@ -71,7 +70,6 @@ export default function Backlog({ state, mutate }) {
             {filtered.map((t) => {
               const blk = blockers(t, tasksById);
               const m = t.milestone_id && milestonesById.get(t.milestone_id);
-              const assignees = t.assignments.map((a) => peopleById.get(a.person_id)).filter(Boolean);
               return (
                 <tr key={t.id} className={t.status === 'done' ? 'dim' : ''}>
                   <td>
@@ -88,12 +86,15 @@ export default function Backlog({ state, mutate }) {
                     <span className={`badge st-${t.status}`}>{STATUS_LABELS[t.status]}</span>
                   </td>
                   <td className="skills-cell">
-                    {assignees.length
-                      ? assignees.map((p) => {
-                          const a = t.assignments.find((x) => x.person_id === p.id);
-                          return `${p.name} (${a?.assigned_date || '—'})`;
-                        }).join(', ')
-                      : '—'}
+                    <select
+                      value={t.assignee_id || ''}
+                      onChange={(e) => mutate('PUT', `/api/tasks/${t.id}`, { assignee_id: e.target.value ? Number(e.target.value) : null })}
+                    >
+                      <option value="">Sin asignar</option>
+                      {people.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     {blk.length > 0 && (
@@ -131,7 +132,7 @@ export default function Backlog({ state, mutate }) {
 }
 
 export function TaskForm({ task, state, mutate, onClose }) {
-  const { skills, milestones, tasks } = state;
+  const { skills, milestones, tasks, people } = state;
   const [f, setF] = useState(() => ({
     title: task?.title || '',
     description: task?.description || '',
@@ -140,6 +141,7 @@ export function TaskForm({ task, state, mutate, onClose }) {
     is_critical: !!task?.is_critical,
     location: task?.location || '',
     status: task?.status || 'backlog',
+    assignee_id: task?.assignee_id || '',
     skill_ids: task?.skill_ids || [],
     dep_ids: task?.dep_ids || [],
   }));
@@ -172,6 +174,7 @@ export function TaskForm({ task, state, mutate, onClose }) {
       milestone_id: f.milestone_id ? Number(f.milestone_id) : null,
       estimate_hours: Number(f.estimate_hours) || 0,
       is_critical: f.is_critical ? 1 : 0,
+      assignee_id: f.assignee_id ? Number(f.assignee_id) : null,
     };
     const ok = task
       ? await mutate('PUT', `/api/tasks/${task.id}`, body)
@@ -214,6 +217,15 @@ export function TaskForm({ task, state, mutate, onClose }) {
             <input value={f.location} placeholder="boxes, taller, pista…"
               onChange={(e) => set('location', e.target.value)} />
           </label>
+          <label>
+            Asignada a
+            <select value={f.assignee_id} onChange={(e) => set('assignee_id', e.target.value)}>
+              <option value="">Sin asignar</option>
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </label>
           {task && (
             <label>
               Estado
@@ -225,12 +237,6 @@ export function TaskForm({ task, state, mutate, onClose }) {
             </label>
           )}
         </div>
-
-        <label className="check-label">
-          <input type="checkbox" checked={f.is_critical}
-            onChange={(e) => set('is_critical', e.target.checked)} />
-          Crítica (flag manual)
-        </label>
 
         <fieldset>
           <legend>Skills requeridas (todas)</legend>
