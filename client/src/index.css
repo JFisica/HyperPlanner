@@ -674,6 +674,56 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
   box-shadow: 0 12px 30px rgba(0,0,0,0.22);
 }
 
+.paint-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.paint-workspace {
+  min-width: 0;
+}
+
+.paint-inspector {
+  background: linear-gradient(180deg, rgba(27,27,42,0.98), rgba(19,19,30,0.98));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  overflow: auto;
+  min-height: 620px;
+}
+
+.paint-inspector-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.paint-inspector-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.paint-inspector-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.paint-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.paint-field input[type="number"],
+.paint-field input[type="text"] {
+  width: 100%;
+}
+
 .tool-group {
   display: flex;
   gap: 6px;
@@ -750,9 +800,17 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
 }
 
 @media (max-width: 900px) {
+  .paint-shell {
+    grid-template-columns: 1fr;
+  }
+
   .paint-hero {
     align-items: start;
     flex-direction: column;
+  }
+
+  .paint-inspector {
+    min-height: 0;
   }
 
   .paint-canvas {
