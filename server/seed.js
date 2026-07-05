@@ -1,16 +1,7 @@
 // Idempotent seed: typical Hyperloop team skills + 4 milestones.
 const db = require('./db');
 
-const SKILLS = [
-  'Soldadura SMD',
-  'Firmware STM32',
-  'HV / Baterías',
-  'Mecánica',
-  'Cableado / Harness',
-  'Testing / Validación',
-  'Software',
-  'Logística',
-];
+const SKILLS = [];
 
 const MILESTONES = [
   { name: 'Subsistemas listos', due_date: '2026-07-08', sort_order: 1 },
