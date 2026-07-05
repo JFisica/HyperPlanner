@@ -660,34 +660,6 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
   text-overflow: ellipsis;
 }
 
-/* Light overrides applied only during PNG export */
-.report.exporting { background: #fff !important; color: #111 !important; border-color: #ccc !important; }
-.report.exporting .report-header  { border-bottom-color: #ccc !important; }
-.report.exporting .report-date    { color: #111 !important; }
-.report.exporting .countdown      { color: #6d28d9 !important; }
-.report.exporting .countdown.urgent { color: #dc2626 !important; }
-.report.exporting .countdown-sub  { color: #888 !important; }
-.report.exporting .report-footer  { color: #888 !important; border-top-color: #ddd !important; }
-.report.exporting .report-cal-outer { border-color: #ddd !important; }
-.report.exporting .cal-time-col   { background: #f8f8fb !important; border-color: #ddd !important; }
-.report.exporting .cal-hour-label { color: #777 !important; }
-.report.exporting .cal-events     { background: #fff !important; }
-.report.exporting .cal-hline      { background: #e5e7eb !important; }
-.report.exporting .cal-hline.half { background: #f3f4f6 !important; }
-.report.exporting .cal-hline.midday   { background: #9ca3af !important; }
-.report.exporting .cal-hline.midnight { background: #7c3aed !important; }
-.report.exporting .cal-block      { color: #1a1030 !important; }
-.report.exporting .cal-block.st-backlog     { background: #ede9fe !important; border-left-color: #7c3aed !important; color: #4c1d95 !important; }
-.report.exporting .cal-block.st-assigned    { background: #ede9fe !important; border-left-color: #7c3aed !important; color: #4c1d95 !important; }
-.report.exporting .cal-block.st-in_progress { background: #fef3c7 !important; border-left-color: #d97706 !important; color: #78350f !important; }
-.report.exporting .cal-block.st-blocked     { background: #fee2e2 !important; border-left-color: #dc2626 !important; color: #7f1d1d !important; }
-.report.exporting .cal-block.st-done        { background: #d1fae5 !important; border-left-color: #059669 !important; color: #065f46 !important; opacity: 1 !important; }
-.report.exporting .cal-block-time           { opacity: 0.6 !important; }
-.report.exporting .assignee-pill            { background: #ddd6fe !important; border-color: #a78bfa !important; color: #2e1065 !important; }
-.report.exporting .report-unscheduled       { background: #f9fafb !important; border-color: #e5e7eb !important; }
-.report.exporting .report-unscheduled-title { color: #6b7280 !important; }
-.report.exporting .report-unscheduled-item  { border-top-color: #e5e7eb !important; color: #111 !important; }
-.report.exporting .cal-empty-hint           { color: #9ca3af !important; }
 
 /* ---------- carpa plan / paint ---------- */
 

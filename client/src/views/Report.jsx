@@ -79,7 +79,6 @@ export default function Report({ state, date, setDate }) {
 
   async function exportPNG() {
     setExporting(true);
-    ref.current.classList.add('exporting');
 
     // Crop the calendar to the hours actually used (± 30 min padding).
     const calOuter = ref.current.querySelector('.report-cal-outer');
@@ -98,14 +97,13 @@ export default function Report({ state, date, setDate }) {
     }
 
     try {
-      const canvas = await html2canvas(ref.current, { backgroundColor: '#ffffff', scale: 2 });
+      const canvas = await html2canvas(ref.current, { backgroundColor: '#13131e', scale: 2 });
       const a = document.createElement('a');
       a.download = `parte-${date}.png`;
       a.href = canvas.toDataURL('image/png');
       a.click();
     } finally {
       if (calInner) { calInner.style.marginTop = ''; calOuter.style.height = ''; }
-      ref.current.classList.remove('exporting');
       setExporting(false);
     }
   }
