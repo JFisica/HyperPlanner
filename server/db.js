@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
-INSERT OR IGNORE INTO settings (key, value) VALUES ('default_capacity', '10');
 CREATE TABLE IF NOT EXISTS skills (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE
@@ -66,12 +65,6 @@ CREATE TABLE IF NOT EXISTS task_schedule (
   start_time TEXT NOT NULL,
   end_time TEXT NOT NULL,
   PRIMARY KEY (task_id, date)
-);
-CREATE TABLE IF NOT EXISTS capacity_overrides (
-  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
-  date TEXT NOT NULL,
-  hours REAL NOT NULL,
-  PRIMARY KEY (person_id, date)
 );
 `);
 

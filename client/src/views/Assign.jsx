@@ -4,8 +4,6 @@ import {
   blockers,
   urgencySort,
   loadForDay,
-  capacityForDay,
-  defaultCapacity,
   fmtHours,
   formatDate,
 } from '../lib';
@@ -80,7 +78,7 @@ function layoutBlocks(blocks) {
 }
 
 export default function Assign({ state, mutate, date, setDate, showToast }) {
-  const { people, tasks, milestones, capacity_overrides, settings } = state;
+  const { people, tasks, milestones } = state;
   const [dragOverTask, setDragOverTask] = useState(null);
   const [preview, setPreview] = useState(null); // {startTime, durationHours}
   const dragRef = useRef(null);
@@ -195,30 +193,13 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
       setDragOverTask(null);
       dragRef.current = null;
       if (task.assignments.some((a) => a.person_id === drag.personId && a.assigned_date === date)) return;
-      const person = peopleById.get(drag.personId);
       const warnings = [];
       if (blockers(task, tasksById).length)
         warnings.push(`Bloqueada por: ${blockers(task, tasksById).map((b) => b.title).join(', ')}`);
-      const load = loadForDay(tasks, drag.personId, date) + (task.estimate_hours || 0);
-      const cap  = capacityForDay(person, date, capacity_overrides, settings);
-      if (load > cap) warnings.push(`Sobrecarga: ${fmtHours(load)}/${fmtHours(cap)}h`);
       if (warnings.length) showToast?.('⚠ ' + warnings.join(' · '), 'warn');
       await mutate('POST', '/api/assign', { task_id: task.id, person_id: drag.personId, date });
     }
     // task-type drags bubble to cal drop handler
-  }
-
-  function editDayCapacity(person) {
-    const current = capacityForDay(person, date, capacity_overrides, settings);
-    const v = prompt(
-      `Horas de ${person.name} el ${formatDate(date)} (vacío = estándar ${defaultCapacity(settings)}h):`,
-      current
-    );
-    if (v === null) return;
-    mutate('PUT', '/api/capacity', {
-      person_id: person.id, date,
-      hours: v.trim() === '' ? null : Number(v),
-    });
   }
 
   const hours     = Array.from({ length: TOTAL_H + 1 }, (_, i) => START_HOUR + i); // 6..26
@@ -242,10 +223,6 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
           <div className="col-label">Personas</div>
           {people.map((p) => {
             const load = loadForDay(tasks, p.id, date);
-            const cap  = capacityForDay(p, date, capacity_overrides, settings);
-            const over = load > cap;
-            const pct  = cap > 0 ? Math.min(100, (load / cap) * 100) : 100;
-            const hasOverride = capacity_overrides.some((o) => o.person_id === p.id && o.date === date);
             return (
               <div
                 key={p.id}
@@ -257,16 +234,9 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                 <div className="person-head">
                   <span className="drag-handle">⠿</span>
                   <b className="person-name">{p.name}</b>
-                  <span
-                    className={`load ${over ? 'over' : ''}`}
-                    title="Clic para editar horas del día"
-                    onClick={() => editDayCapacity(p)}
-                  >
-                    {fmtHours(load)}/{fmtHours(cap)}h{hasOverride ? '*' : ''} ✎
+                  <span className="load" title="Horas asignadas hoy">
+                    {fmtHours(load)}h
                   </span>
-                </div>
-                <div className="bar">
-                  <div className={`bar-fill ${over ? 'over' : ''}`} style={{ width: `${pct}%` }} />
                 </div>
               </div>
             );

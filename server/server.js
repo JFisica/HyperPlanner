@@ -21,7 +21,6 @@ function getState() {
   const taskDeps = db.prepare('SELECT * FROM task_deps').all();
   const taskAssignments = db.prepare('SELECT * FROM task_assignments').all();
   const taskSchedule = db.prepare('SELECT * FROM task_schedule').all();
-  const capacityOverrides = db.prepare('SELECT * FROM capacity_overrides').all();
   const settingsRows = db.prepare('SELECT * FROM settings').all();
   const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
 
@@ -34,7 +33,7 @@ function getState() {
     t.assignments = taskAssignments.filter((x) => x.task_id === t.id);
     t.schedule = taskSchedule.filter((x) => x.task_id === t.id);
   }
-  return { people, skills, milestones, tasks, capacity_overrides: capacityOverrides, settings };
+  return { people, skills, milestones, tasks, settings };
 }
 
 const sendState = (res) => res.json(getState());
@@ -263,22 +262,6 @@ app.post('/api/unassign', (req, res) => {
   const remaining = db.prepare('SELECT COUNT(*) c FROM task_assignments WHERE task_id = ?').get(task_id).c;
   if (remaining === 0 && task.status === 'assigned') {
     db.prepare(`UPDATE tasks SET status = 'backlog', updated_at = datetime('now') WHERE id = ?`).run(task_id);
-  }
-  sendState(res);
-});
-
-app.put('/api/capacity', (req, res) => {
-  const { person_id, date, hours } = req.body;
-  if (!db.prepare('SELECT 1 FROM people WHERE id = ?').get(person_id)) {
-    return res.status(404).json({ error: 'Persona no encontrada' });
-  }
-  if (!date) return res.status(400).json({ error: 'Falta la fecha' });
-  if (hours === null || hours === undefined || hours === '') {
-    db.prepare('DELETE FROM capacity_overrides WHERE person_id = ? AND date = ?').run(person_id, date);
-  } else {
-    db.prepare(`INSERT INTO capacity_overrides (person_id, date, hours) VALUES (?, ?, ?)
-                ON CONFLICT(person_id, date) DO UPDATE SET hours = excluded.hours`)
-      .run(person_id, date, Number(hours));
   }
   sendState(res);
 });

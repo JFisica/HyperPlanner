@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { defaultCapacity } from '../lib';
 
 function SkillMenu({ person, skills, onToggle, onClose }) {
   const ref = useRef(null);
@@ -29,7 +28,7 @@ function SkillMenu({ person, skills, onToggle, onClose }) {
 }
 
 export default function Team({ state, mutate }) {
-  const { people, skills, settings } = state;
+  const { people, skills } = state;
   const [newName, setNewName]   = useState('');
   const [newSkill, setNewSkill] = useState('');
   const [openMenu, setOpenMenu] = useState(null); // person id with menu open
@@ -73,23 +72,6 @@ export default function Team({ state, mutate }) {
           />
           <button type="submit">+ Skill</button>
         </form>
-        <label className="row gap" style={{ marginLeft: 'auto' }}>
-          <span className="muted">Jornada estándar</span>
-          <input
-            type="number"
-            min="0"
-            step="0.5"
-            style={{ width: 64 }}
-            key={`cap-${settings?.default_capacity}`}
-            defaultValue={defaultCapacity(settings)}
-            onBlur={(e) => {
-              const v = Number(e.target.value);
-              if (v !== defaultCapacity(settings))
-                mutate('PUT', '/api/settings', { key: 'default_capacity', value: v });
-            }}
-          />
-          <span className="muted">h/día</span>
-        </label>
       </div>
 
       {/* Skills legend */}

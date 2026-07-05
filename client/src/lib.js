@@ -92,15 +92,6 @@ export function loadForDay(tasks, personId, date) {
   return tasksForPersonDay(tasks, personId, date).reduce((s, t) => s + (t.estimate_hours || 0), 0);
 }
 
-export function defaultCapacity(settings) {
-  return Number(settings?.default_capacity ?? 10);
-}
-
-export function capacityForDay(person, date, overrides, settings) {
-  const o = overrides.find((x) => x.person_id === person.id && x.date === date);
-  return o ? o.hours : defaultCapacity(settings);
-}
-
 export function fmtHours(h) {
   return Number.isInteger(h) ? String(h) : h.toFixed(1);
 }
