@@ -333,6 +333,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
       <div className="schedule-layout">
         {/* ---- Sidebar: unscheduled tasks + per-person load today ---- */}
         <div className="schedule-sidebar">
+          <div className="schedule-sidebar-col">
           <div className="col-label">Sin horario hoy</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {unscheduled.map((t) => {
@@ -388,10 +389,11 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
               <p className="empty" style={{ fontSize: 12 }}>Todo planificado.</p>
             )}
           </div>
+          </div>
 
           {people.length > 0 && (
-            <>
-              <div className="col-label" style={{ marginTop: 14 }}>Personas</div>
+            <div className="schedule-sidebar-col">
+              <div className="col-label">Personas</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {people.map((p) => {
                   const load = loadForDay(slotsToday, tasksById, p.id, date);
@@ -412,7 +414,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                   );
                 })}
               </div>
-            </>
+            </div>
           )}
         </div>
 
@@ -466,7 +468,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                     key={slot.id}
                     className={`cal-block slot-block${task ? ` st-${task.status}` : ' slot-empty'}${task?.is_critical ? ' critical' : ''}${isPersonDropTarget ? ' drop-active' : ''}`}
                     style={{
-                      top, height,
+                      top, minHeight: height,
                       left: `calc(${leftPct}% + ${leftGutter}px)`,
                       right: `calc(${rightPct}% + ${rightGutter}px)`,
                     }}
@@ -494,6 +496,8 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                           </select>
                         )}
                       </span>
+                    </div>
+                    <div className="cal-block-subheader">
                       <span className="cal-block-time">{slot.start_time}–{slot.end_time}</span>
                       <button
                         className="mini cal-block-parallel"
@@ -512,7 +516,15 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                     {height >= 40 && task && (
                       <div className="cal-block-assignees">
                         {assignees.length > 0
-                          ? assignees.map((p) => <span key={p.id} className="assignee-pill">{p.name}</span>)
+                          ? assignees.map((p) => (
+                              <span
+                                key={p.id}
+                                className="assignee-pill removable"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); toggleAssignee(task, p.id); }}
+                                title="Quitar de la tarea"
+                              >{p.name}</span>
+                            ))
                           : <span className="cal-drop-hint">Sin asignar</span>}
                       </div>
                     )}

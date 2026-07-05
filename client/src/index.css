@@ -251,12 +251,20 @@ tr.dim td { opacity: 0.45; }
 
 /* Sidebar */
 .schedule-sidebar {
-  width: 200px;
+  width: 360px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   overflow-y: auto;
   padding: 10px;
   background: var(--panel);
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.schedule-sidebar-col {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -358,14 +366,16 @@ tr.dim td { opacity: 0.45; }
   border-radius: 6px;
   padding: 5px 8px;
   font-size: 12px;
-  overflow: hidden;
+  overflow: visible;
   cursor: grab;
   border-left: 4px solid;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   transition: box-shadow 0.12s;
+  z-index: 1;
 }
+.cal-block:hover { z-index: 2; }
 .cal-block:active { cursor: grabbing; }
 .cal-block.st-backlog     { background: #16162a; border-left-color: var(--muted);  color: var(--muted); }
 .cal-block.st-assigned    { background: #1e1050; border-left-color: var(--accent); color: #d4b4fe; }
@@ -383,12 +393,21 @@ tr.dim td { opacity: 0.45; }
 
 .cal-block-header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+}
+.cal-block-title {
+  font-weight: 700;
+  white-space: normal;
+  overflow-wrap: break-word;
+  flex: 1;
+  min-width: 0;
+}
+.cal-block-subheader {
+  display: flex;
+  align-items: center;
   gap: 4px;
 }
-.cal-block-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.cal-block-time  { font-size: 11px; opacity: 0.7; white-space: nowrap; flex-shrink: 0; }
+.cal-block-time  { font-size: 11px; opacity: 0.7; white-space: nowrap; flex: 1; min-width: 0; }
 .cal-block-blocked { font-size: 11px; color: var(--danger); }
 
 .cal-block-assignees {
@@ -409,6 +428,8 @@ tr.dim td { opacity: 0.45; }
   font-weight: 600;
 }
 .assignee-pill.ghost { opacity: 0.5; border-style: dashed; animation: pulse 0.8s infinite alternate; }
+.assignee-pill.removable { cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.assignee-pill.removable:hover { background: rgba(248, 113, 113, 0.18); border-color: var(--danger); }
 @keyframes pulse { from { opacity: 0.3; } to { opacity: 0.7; } }
 .pill-remove {
   background: none; border: none; color: var(--muted);
@@ -849,7 +870,7 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
 }
 
 @media (max-width: 900px) {
-  .schedule-sidebar { width: 160px; }
+  .schedule-sidebar { width: 200px; flex-direction: column; }
   .report { width: 100%; padding: 16px; }
   .report-title { font-size: 24px; }
   .countdown { font-size: 30px; }
