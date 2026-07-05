@@ -67,14 +67,14 @@ export default function Report({ state, date, setDate }) {
     return layoutBlocks(blocks);
   }, [slotsToday, tasks]);
 
-  // Tasks with an assignee but no time slot today (still need to be picked up).
+  // Tasks with at least one assignee but no time slot today (still need to be picked up).
   const unscheduledAssigned = useMemo(() => {
     const scheduledTaskIds = new Set(slotsToday.filter((s) => s.task_id).map((s) => s.task_id));
-    return tasks.filter((t) => t.assignee_id && t.status !== 'done' && !scheduledTaskIds.has(t.id));
+    return tasks.filter((t) => t.assignee_ids.length > 0 && t.status !== 'done' && !scheduledTaskIds.has(t.id));
   }, [tasks, slotsToday]);
 
   const unassignedPeople = people.filter((p) =>
-    !slotsToday.some((s) => s.task_id && tasks.find((t) => t.id === s.task_id)?.assignee_id === p.id)
+    !slotsToday.some((s) => s.task_id && tasks.find((t) => t.id === s.task_id)?.assignee_ids.includes(p.id))
   );
 
   async function exportPNG() {
@@ -171,7 +171,7 @@ export default function Report({ state, date, setDate }) {
                 );
                 const leftPct  = (col / localCols) * 100;
                 const widthPct = (1 / localCols) * 100 - 0.4;
-                const person = task.assignee_id ? peopleById.get(task.assignee_id) : null;
+                const assignees = task.assignee_ids.map((pid) => peopleById.get(pid)).filter(Boolean);
                 const m = task.milestone_id && milestonesById.get(task.milestone_id);
 
                 return (
@@ -189,8 +189,8 @@ export default function Report({ state, date, setDate }) {
                     </div>
                     {height >= 38 && (
                       <div className="cal-block-assignees">
-                        {person
-                          ? <span className="assignee-pill">{person.name}</span>
+                        {assignees.length > 0
+                          ? assignees.map((p) => <span key={p.id} className="assignee-pill">{p.name}</span>)
                           : <span className="cal-drop-hint">Sin asignar</span>}
                       </div>
                     )}
@@ -213,13 +213,13 @@ export default function Report({ state, date, setDate }) {
           <div className="report-unscheduled">
             <div className="report-unscheduled-title">Sin horario</div>
             {unscheduledAssigned.map((t) => {
-              const assignee = t.assignee_id && peopleById.get(t.assignee_id);
+              const names = t.assignee_ids.map((pid) => peopleById.get(pid)?.name).filter(Boolean);
               return (
                 <div key={t.id} className="report-unscheduled-item">
                   <span>{!!t.is_critical && '● '}{t.title}{t.status === 'done' ? ' ✔' : ''}</span>
                   <span className="muted">
                     {fmtHours(t.estimate_hours || 0)}h
-                    {assignee ? ` · ${assignee.name}` : ''}
+                    {names.length ? ` · ${names.join(', ')}` : ''}
                   </span>
                 </div>
               );

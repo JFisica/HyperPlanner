@@ -7,7 +7,7 @@ import {
   fmtHours,
   formatDate,
 } from '../lib';
-import { TaskForm } from './Backlog';
+import { TaskForm, AssigneeMenu } from './Backlog';
 
 const PX_PER_HOUR = 80;
 const START_HOUR = 6;
@@ -89,6 +89,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
   const dragRef = useRef(null);
   const eventsRef = useRef(null);
   const [creatingTask, setCreatingTask] = useState(false);
+  const [openAssigneeMenu, setOpenAssigneeMenu] = useState(null); // task id
 
   const tasksById      = useMemo(() => byId(tasks), [tasks]);
   const peopleById     = useMemo(() => byId(people), [people]);
@@ -218,6 +219,14 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
     };
   }
 
+  function toggleAssignee(task, personId) {
+    const has = task.assignee_ids.includes(personId);
+    const assignee_ids = has
+      ? task.assignee_ids.filter((id) => id !== personId)
+      : [...task.assignee_ids, personId];
+    mutate('PUT', `/api/tasks/${task.id}`, { assignee_ids });
+  }
+
   // ---- sidebar task drag → drop onto the calendar creates+assigns a slot in one step ----
   function onSidebarTaskDragStart(e, task) {
     e.dataTransfer.effectAllowed = 'copy';
@@ -302,18 +311,29 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                     {m ? ` · ${m.name}` : ''}
                     {blk.length ? ' · ⛔' : ''}
                   </div>
-                  <select
-                    className="sidebar-task-assignee"
-                    value={t.assignee_id || ''}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => mutate('PUT', `/api/tasks/${t.id}`, { assignee_id: e.target.value ? Number(e.target.value) : null })}
-                  >
-                    <option value="">Sin asignar</option>
-                    {people.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
+                  <div className="sidebar-task-assignees" onMouseDown={(e) => e.stopPropagation()}>
+                    {t.assignee_ids.map((pid) => {
+                      const p = peopleById.get(pid);
+                      if (!p) return null;
+                      return (
+                        <span key={pid} className="skill-pill">
+                          {p.name}
+                          <button className="pill-remove" onClick={() => toggleAssignee(t, pid)} title="Quitar">×</button>
+                        </span>
+                      );
+                    })}
+                    <div className="skill-add-wrap">
+                      <button className="mini" onClick={() => setOpenAssigneeMenu(openAssigneeMenu === t.id ? null : t.id)}>+ persona</button>
+                      {openAssigneeMenu === t.id && (
+                        <AssigneeMenu
+                          task={t}
+                          people={people}
+                          onToggle={(pid) => toggleAssignee(t, pid)}
+                          onClose={() => setOpenAssigneeMenu(null)}
+                        />
+                      )}
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -381,7 +401,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                 const rightGutter = isLastCol ? OUTER_GUTTER_PX : INNER_GUTTER_PX / 2;
                 const task = slot.task_id ? tasksById.get(slot.task_id) : null;
                 const blk = task ? blockers(task, tasksById) : [];
-                const assignee = task?.assignee_id ? peopleById.get(task.assignee_id) : null;
+                const assignees = (task?.assignee_ids || []).map((pid) => peopleById.get(pid)).filter(Boolean);
 
                 return (
                   <div
@@ -432,7 +452,9 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
 
                     {height >= 40 && task && (
                       <div className="cal-block-assignees">
-                        <span className="assignee-pill">{assignee ? assignee.name : 'Sin asignar'}</span>
+                        {assignees.length > 0
+                          ? assignees.map((p) => <span key={p.id} className="assignee-pill">{p.name}</span>)
+                          : <span className="cal-drop-hint">Sin asignar</span>}
                       </div>
                     )}
 

@@ -46,8 +46,6 @@ tasks(
   milestone_id,
   estimate_hours REAL,     -- planning estimate, used for critical path / urgency. NOT the calendar duration.
   status TEXT,             -- backlog | assigned | in_progress | blocked | done
-  assignee_id,             -- who's responsible for this task (set in the backlog or the assignment page). NULL if unassigned.
-                           -- Decoupled from scheduling: setting this does NOT place the task on any calendar.
   is_critical INTEGER,     -- flag consumed by the UI (red highlight); no manual toggle in the form anymore,
                            -- reserved for a future automatic critical-path computation.
   location TEXT,           -- optional: boxes, workshop, track...
@@ -55,17 +53,21 @@ tasks(
 )
 task_skills(task_id, skill_id)            -- REQUIRED skills (AND)
 task_deps(task_id, depends_on_task_id)    -- task_id blocked by depends_on
+task_assignees(task_id, person_id)        -- who's responsible for this task (0, 1, or several people;
+                                           -- set from the backlog or the assignment page). Decoupled from
+                                           -- scheduling: this says nothing about when.
 -- A slot is a plain (date, start, end) block on ONE shared calendar timeline
 -- — not one calendar per person. There is no person_id on a slot: whoever is
--- responsible is whatever the attached task's assignee_id says.
+-- responsible is whatever the attached task's task_assignees say.
 time_slots(
   id, date, start_time, end_time,
   task_id                  -- NULL if the slot is still empty
 )
 -- Legacy (pre-slots) tables, kept only so no history is lost on upgrade;
 -- no longer written to. One-time migrations on boot convert their rows into
--- time_slots, and later drop time_slots.person_id in favor of tasks.assignee_id
--- (guarded by settings['migrated_time_slots_v1'] and a `time_slots` column check).
+-- time_slots, then drop time_slots.person_id in favor of a single tasks.assignee_id,
+-- then fold that single column into the many-to-many task_assignees above and
+-- drop it too (each step guarded by a settings flag or a column-existence check).
 task_assignments(task_id, person_id, assigned_date)
 task_schedule(task_id, date, start_time, end_time)
 ```
@@ -75,7 +77,7 @@ task_schedule(task_id, date, start_time, end_time)
 1. **Person-task compatibility:** a person is eligible for a task if they have ALL required skills. The UI never prevents an incompatible assignment (the coordinator is in charge), but flags it with a visible warning.
 2. **Dependencies:** a task with non-done dependencies is "blocked". It can still be placed on the calendar (to prep the day) but is shown with a blocked badge and what blocks it. Detect and reject cycles when creating dependencies.
 3. **Critical path:** using `estimate_hours` and the dependency graph, compute the longest chain (in hours) toward each milestone. Tasks on that chain are painted red. Recompute on every change. Simple longest-path over a DAG (topological order); nothing sophisticated needed. This is entirely independent of the calendar — it only ever uses the backlog's `estimate_hours`.
-4. **Backlog vs. scheduling are decoupled.** The backlog is where tasks are created/edited and given a responsible person (`assignee_id`) and an `estimate_hours` — no time, no duration, no calendar concept lives there. The Assignment page is a single shared calendar (not one column per person): coordinators create a **time slot** (date + start/end, adjustable by dragging on creation or later) and then attach a task to it. A time slot can exist empty. Multiple overlapping time slots are allowed (the coordinator decides). Whoever a slot's block shows as responsible comes from the attached task's `assignee_id` — the slot itself carries no person. `assignee_id` can be set from either the Backlog or the Assignment page. A task's status flips to `assigned` when it has at least one time slot, and back to `backlog` when it has none — this is the only place status is driven by the calendar.
+4. **Backlog vs. scheduling are decoupled.** The backlog is where tasks are created/edited and given responsible people (`task_assignees` — a task can have zero, one, or several) and an `estimate_hours` — no time, no duration, no calendar concept lives there. The Assignment page is a single shared calendar (not one column per person): coordinators create a **time slot** (date + start/end, adjustable by dragging on creation or later) and then attach a task to it. A time slot can exist empty. Multiple overlapping time slots are allowed (the coordinator decides; each block also has a "‖+" button to add a parallel slot at the exact same time without needing a background sliver to drag from). Whoever a slot's block shows as responsible comes from the attached task's assignees — the slot itself carries no person. Assignees can be toggled from either the Backlog or the Assignment page. A task's status flips to `assigned` when it has at least one time slot, and back to `backlog` when it has none — this is the only place status is driven by the calendar.
 5. **Capacity:** each person has 10 h/day available by default (editable per person and per day — there are shifts and people arriving/leaving). The sum of the slot durations of a person's assigned tasks on a day must not exceed their capacity; if it does, warning, not a hard block. (Capacity is measured against actual scheduled slot duration, not against `estimate_hours` — those two numbers are allowed to diverge.)
 6. **Suggested urgency:** when asking for the "next task for X", sort eligible and unblocked tasks by: on critical path > manual is_critical > nearest milestone > most hours of dependent descendants (unblocks the most work).
 

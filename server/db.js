@@ -54,6 +54,13 @@ CREATE TABLE IF NOT EXISTS task_deps (
   depends_on_task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   PRIMARY KEY (task_id, depends_on_task_id)
 );
+-- A task can have several responsible people (set from the backlog or the
+-- assignment page). Independent of scheduling: it says nothing about when.
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, person_id)
+);
 -- Legacy (pre-slots) tables. No longer written to; kept so no history is lost.
 CREATE TABLE IF NOT EXISTS task_assignments (
   task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -76,8 +83,8 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT DEFAULT (datetime('now'))
 );
 -- A slot is a plain (date, start, end) block on the shared calendar; it can
--- optionally hold a task. There is no person_id here: the responsible person
--- is whoever the attached task's assignee_id says it is (set in the backlog).
+-- optionally hold a task. There is no person_id here: the responsible
+-- people are whoever the attached task's task_assignees say they are.
 CREATE TABLE IF NOT EXISTS time_slots (
   id INTEGER PRIMARY KEY,
   date TEXT NOT NULL,
@@ -184,6 +191,24 @@ function migrateDropSlotPersonId() {
   console.log('Migración: los horarios dejan de pertenecer a una persona; el responsable viene de la tarea asignada.');
 }
 migrateDropSlotPersonId();
+
+// v3 upgrade: a task used to have a single assignee_id column; now it can
+// have several people via task_assignees, so a task can be shared by more
+// than one person. Fold whatever was in assignee_id into the new table,
+// then drop the column.
+function migrateAssigneeIdToTaskAssignees() {
+  if (!columnExists('tasks', 'assignee_id')) return;
+  const tx = db.transaction(() => {
+    db.exec(`
+      INSERT OR IGNORE INTO task_assignees (task_id, person_id)
+      SELECT id, assignee_id FROM tasks WHERE assignee_id IS NOT NULL;
+    `);
+    db.exec('ALTER TABLE tasks DROP COLUMN assignee_id');
+  });
+  tx();
+  console.log('Migración: una tarea puede tener varias personas asignadas (antes solo una).');
+}
+migrateAssigneeIdToTaskAssignees();
 
 // Ensure a default admin user always exists.
 function ensureDefaultAdmin() {

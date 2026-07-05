@@ -1,5 +1,38 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { STATUS_LABELS, byId, blockers, fmtHours } from '../lib';
+
+// Popover to toggle which people are assigned to a task (a task can have
+// several). Shared by the Backlog table and the Assign page sidebar.
+export function AssigneeMenu({ task, people, onToggle, onClose }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="skill-menu" ref={ref}>
+      {people.length === 0 ? (
+        <div className="skill-menu-empty">Añade personas en Equipo</div>
+      ) : (
+        people.map((p) => (
+          <label key={p.id} className="skill-menu-item assignee-menu-item">
+            <input
+              type="checkbox"
+              checked={task.assignee_ids.includes(p.id)}
+              onChange={() => onToggle(p.id)}
+            />
+            {p.name}
+          </label>
+        ))
+      )}
+    </div>
+  );
+}
 
 export default function Backlog({ state, mutate }) {
   const { tasks, skills, milestones, people } = state;
@@ -7,10 +40,20 @@ export default function Backlog({ state, mutate }) {
   const [fStatus, setFStatus] = useState('');
   const [fSkill, setFSkill] = useState('');
   const [editing, setEditing] = useState(null);
+  const [openAssigneeMenu, setOpenAssigneeMenu] = useState(null); // task id
 
   const tasksById = useMemo(() => byId(tasks), [tasks]);
   const milestonesById = useMemo(() => byId(milestones), [milestones]);
   const skillsById = useMemo(() => byId(skills), [skills]);
+  const peopleById = useMemo(() => byId(people), [people]);
+
+  function toggleAssignee(task, personId) {
+    const has = task.assignee_ids.includes(personId);
+    const assignee_ids = has
+      ? task.assignee_ids.filter((id) => id !== personId)
+      : [...task.assignee_ids, personId];
+    mutate('PUT', `/api/tasks/${task.id}`, { assignee_ids });
+  }
 
   const filtered = tasks.filter(
     (t) =>
@@ -86,15 +129,29 @@ export default function Backlog({ state, mutate }) {
                     <span className={`badge st-${t.status}`}>{STATUS_LABELS[t.status]}</span>
                   </td>
                   <td className="skills-cell">
-                    <select
-                      value={t.assignee_id || ''}
-                      onChange={(e) => mutate('PUT', `/api/tasks/${t.id}`, { assignee_id: e.target.value ? Number(e.target.value) : null })}
-                    >
-                      <option value="">Sin asignar</option>
-                      {people.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
+                    <div className="skill-pills">
+                      {t.assignee_ids.map((pid) => {
+                        const p = peopleById.get(pid);
+                        if (!p) return null;
+                        return (
+                          <span key={pid} className="skill-pill">
+                            {p.name}
+                            <button className="pill-remove" onClick={() => toggleAssignee(t, pid)} title="Quitar">×</button>
+                          </span>
+                        );
+                      })}
+                      <div className="skill-add-wrap">
+                        <button className="mini" onClick={() => setOpenAssigneeMenu(openAssigneeMenu === t.id ? null : t.id)}>+ persona</button>
+                        {openAssigneeMenu === t.id && (
+                          <AssigneeMenu
+                            task={t}
+                            people={people}
+                            onToggle={(pid) => toggleAssignee(t, pid)}
+                            onClose={() => setOpenAssigneeMenu(null)}
+                          />
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td>
                     {blk.length > 0 && (
@@ -141,7 +198,7 @@ export function TaskForm({ task, state, mutate, onClose }) {
     is_critical: !!task?.is_critical,
     location: task?.location || '',
     status: task?.status || 'backlog',
-    assignee_id: task?.assignee_id || '',
+    assignee_ids: task?.assignee_ids || [],
     skill_ids: task?.skill_ids || [],
     dep_ids: task?.dep_ids || [],
   }));
@@ -174,7 +231,6 @@ export function TaskForm({ task, state, mutate, onClose }) {
       milestone_id: f.milestone_id ? Number(f.milestone_id) : null,
       estimate_hours: Number(f.estimate_hours) || 0,
       is_critical: f.is_critical ? 1 : 0,
-      assignee_id: f.assignee_id ? Number(f.assignee_id) : null,
     };
     const ok = task
       ? await mutate('PUT', `/api/tasks/${task.id}`, body)
@@ -217,15 +273,6 @@ export function TaskForm({ task, state, mutate, onClose }) {
             <input value={f.location} placeholder="boxes, taller, pista…"
               onChange={(e) => set('location', e.target.value)} />
           </label>
-          <label>
-            Asignada a
-            <select value={f.assignee_id} onChange={(e) => set('assignee_id', e.target.value)}>
-              <option value="">Sin asignar</option>
-              {people.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </label>
           {task && (
             <label>
               Estado
@@ -237,6 +284,20 @@ export function TaskForm({ task, state, mutate, onClose }) {
             </label>
           )}
         </div>
+
+        <fieldset>
+          <legend>Asignada a (una o varias personas)</legend>
+          <div className="chip-list">
+            {people.map((p) => (
+              <label key={p.id} className={f.assignee_ids.includes(p.id) ? 'chip on' : 'chip'}>
+                <input type="checkbox" checked={f.assignee_ids.includes(p.id)}
+                  onChange={() => toggle('assignee_ids', p.id)} />
+                {p.name}
+              </label>
+            ))}
+            {people.length === 0 && <span className="muted">Añade personas en Equipo.</span>}
+          </div>
+        </fieldset>
 
         <fieldset>
           <legend>Skills requeridas (todas)</legend>

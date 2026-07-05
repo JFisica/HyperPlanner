@@ -133,6 +133,7 @@ function getState() {
   const personSkills = db.prepare('SELECT * FROM person_skills').all();
   const taskSkills = db.prepare('SELECT * FROM task_skills').all();
   const taskDeps = db.prepare('SELECT * FROM task_deps').all();
+  const taskAssignees = db.prepare('SELECT * FROM task_assignees').all();
   const timeSlots = db.prepare('SELECT * FROM time_slots ORDER BY date, start_time').all();
   const settingsRows = db.prepare('SELECT * FROM settings').all();
   const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
@@ -143,6 +144,7 @@ function getState() {
   for (const t of tasks) {
     t.skill_ids = taskSkills.filter((x) => x.task_id === t.id).map((x) => x.skill_id);
     t.dep_ids = taskDeps.filter((x) => x.task_id === t.id).map((x) => x.depends_on_task_id);
+    t.assignee_ids = taskAssignees.filter((x) => x.task_id === t.id).map((x) => x.person_id);
   }
   return { people, skills, milestones, tasks, time_slots: timeSlots, settings };
 }
@@ -255,11 +257,10 @@ function taskFields(body, current = {}) {
     status: body.status !== undefined ? body.status : (current.status || 'backlog'),
     is_critical: body.is_critical !== undefined ? (body.is_critical ? 1 : 0) : (current.is_critical || 0),
     location: body.location !== undefined ? body.location : (current.location || ''),
-    assignee_id: body.assignee_id !== undefined ? (body.assignee_id || null) : (current.assignee_id ?? null),
   };
 }
 
-function setTaskRelations(taskId, skillIds, depIds) {
+function setTaskRelations(taskId, skillIds, depIds, assigneeIds) {
   if (Array.isArray(skillIds)) {
     db.prepare('DELETE FROM task_skills WHERE task_id = ?').run(taskId);
     const ins = db.prepare('INSERT INTO task_skills (task_id, skill_id) VALUES (?, ?)');
@@ -269,6 +270,11 @@ function setTaskRelations(taskId, skillIds, depIds) {
     db.prepare('DELETE FROM task_deps WHERE task_id = ?').run(taskId);
     const ins = db.prepare('INSERT INTO task_deps (task_id, depends_on_task_id) VALUES (?, ?)');
     for (const did of depIds) ins.run(taskId, did);
+  }
+  if (Array.isArray(assigneeIds)) {
+    db.prepare('DELETE FROM task_assignees WHERE task_id = ?').run(taskId);
+    const ins = db.prepare('INSERT INTO task_assignees (task_id, person_id) VALUES (?, ?)');
+    for (const pid of assigneeIds) ins.run(taskId, pid);
   }
 }
 
@@ -299,15 +305,15 @@ app.post('/api/tasks', (req, res) => {
   const f = taskFields(req.body);
   if (!f.title) return res.status(400).json({ error: 'Falta el título' });
   if (!STATUSES.includes(f.status)) return res.status(400).json({ error: 'Estado inválido' });
-  const { skill_ids, dep_ids } = req.body;
+  const { skill_ids, dep_ids, assignee_ids } = req.body;
   const tx = db.transaction(() => {
     const { lastInsertRowid: id } = db
-      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location, assignee_id)
-                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location, @assignee_id)`)
+      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location)
+                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location)`)
       .run(f);
     const err = validateDeps(Number(id), dep_ids);
     if (err) throw new Error(err);
-    setTaskRelations(Number(id), skill_ids, dep_ids);
+    setTaskRelations(Number(id), skill_ids, dep_ids, assignee_ids);
   });
   try {
     tx();
@@ -324,15 +330,15 @@ app.put('/api/tasks/:id', (req, res) => {
   const f = taskFields(req.body, current);
   if (!f.title) return res.status(400).json({ error: 'Falta el título' });
   if (!STATUSES.includes(f.status)) return res.status(400).json({ error: 'Estado inválido' });
-  const { skill_ids, dep_ids } = req.body;
+  const { skill_ids, dep_ids, assignee_ids } = req.body;
   const err = validateDeps(id, dep_ids);
   if (err) return res.status(400).json({ error: err });
   const tx = db.transaction(() => {
     db.prepare(`UPDATE tasks SET title=@title, description=@description, milestone_id=@milestone_id,
                 estimate_hours=@estimate_hours, status=@status, is_critical=@is_critical,
-                location=@location, assignee_id=@assignee_id, updated_at=datetime('now') WHERE id=@id`)
+                location=@location, updated_at=datetime('now') WHERE id=@id`)
       .run({ ...f, id });
-    setTaskRelations(id, skill_ids, dep_ids);
+    setTaskRelations(id, skill_ids, dep_ids, assignee_ids);
   });
   tx();
   sendState(res);
@@ -349,13 +355,14 @@ app.post('/api/tasks/:id/copy', (req, res) => {
   if (!current) return res.status(404).json({ error: 'Tarea no encontrada' });
   const skillIds = db.prepare('SELECT skill_id FROM task_skills WHERE task_id = ?').all(id).map((r) => r.skill_id);
   const depIds = db.prepare('SELECT depends_on_task_id FROM task_deps WHERE task_id = ?').all(id).map((r) => r.depends_on_task_id);
+  const assigneeIds = db.prepare('SELECT person_id FROM task_assignees WHERE task_id = ?').all(id).map((r) => r.person_id);
   const tx = db.transaction(() => {
     const copy = cloneTask(current);
     const { lastInsertRowid: copyId } = db
-      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location, assignee_id)
-                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location, @assignee_id)`)
+      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location)
+                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location)`)
       .run(copy);
-    setTaskRelations(Number(copyId), skillIds, depIds);
+    setTaskRelations(Number(copyId), skillIds, depIds, assigneeIds);
   });
   tx();
   sendState(res);
@@ -364,7 +371,7 @@ app.post('/api/tasks/:id/copy', (req, res) => {
 // ---------- time slots ----------
 // A slot is a standalone (date, start, end) block on the shared calendar.
 // A task can be attached to it (task_id) or it can sit empty; the
-// responsible person is whatever the attached task's assignee_id says.
+// responsible people are whoever the attached task's task_assignees say.
 // Overlapping slots are allowed (the coordinator decides).
 
 function syncTaskStatusForSlot(taskId) {

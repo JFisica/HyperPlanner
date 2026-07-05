@@ -90,13 +90,13 @@ export function slotDurationHours(slot) {
   return (timeToMinutes(slot.end_time) - timeToMinutes(slot.start_time)) / 60;
 }
 
-// Slots for a given date whose attached task is assigned to this person.
-// There's no person_id on a slot: the responsible person is whoever the
-// attached task's assignee_id says.
+// Slots for a given date whose attached task counts this person among its
+// assignees. There's no person_id on a slot: the responsible people are
+// whoever the attached task's assignee_ids say (a task can have several).
 export function slotsForPersonDay(slots, tasksById, personId, date) {
   return slots.filter((s) => {
     if (s.date !== date || !s.task_id) return false;
-    return tasksById.get(s.task_id)?.assignee_id === personId;
+    return tasksById.get(s.task_id)?.assignee_ids?.includes(personId);
   });
 }
 
