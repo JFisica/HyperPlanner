@@ -1,0 +1,19 @@
+{
+  "name": "ehw-task-command",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"node --watch server/server.js\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client run build",
+    "start": "node server/server.js",
+    "seed": "node server/seed.js",
+    "test": "node --test \"server/test/*.test.js\""
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
