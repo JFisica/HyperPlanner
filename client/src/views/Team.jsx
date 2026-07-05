@@ -1,10 +1,38 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { defaultCapacity } from '../lib';
+
+function SkillMenu({ person, skills, onToggle, onClose }) {
+  const ref = useRef(null);
+  const available = skills.filter((s) => !person.skill_ids.includes(s.id));
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="skill-menu" ref={ref}>
+      {available.length === 0 ? (
+        <div className="skill-menu-empty">Todas añadidas</div>
+      ) : (
+        available.map((s) => (
+          <div key={s.id} className="skill-menu-item" onMouseDown={() => { onToggle(s.id); onClose(); }}>
+            {s.name}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
 
 export default function Team({ state, mutate }) {
   const { people, skills, settings } = state;
-  const [newName, setNewName] = useState('');
+  const [newName, setNewName]   = useState('');
   const [newSkill, setNewSkill] = useState('');
+  const [openMenu, setOpenMenu] = useState(null); // person id with menu open
 
   async function addPerson(e) {
     e.preventDefault();
@@ -64,20 +92,29 @@ export default function Team({ state, mutate }) {
         </label>
       </div>
 
+      {/* Skills legend */}
+      {skills.length > 0 && (
+        <div className="row gap wrap">
+          {skills.map((s) => (
+            <span key={s.id} className="skill-legend-pill">
+              {s.name}
+              <button
+                className="pill-remove"
+                onClick={() => mutate('DELETE', `/api/skills/${s.id}`)}
+                title="Eliminar skill"
+              >×</button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="table-wrap">
-        <table className="matrix">
+        <table>
           <thead>
             <tr>
               <th>Nombre</th>
               <th>Notas</th>
-              {skills.map((s) => (
-                <th key={s.id} className="skill-col">
-                  <span>{s.name}</span>
-                  <button className="mini danger" onClick={() => mutate('DELETE', `/api/skills/${s.id}`)} title="Eliminar skill">
-                    ×
-                  </button>
-                </th>
-              ))}
+              <th>Skills</th>
               <th></th>
             </tr>
           </thead>
@@ -107,27 +144,56 @@ export default function Team({ state, mutate }) {
                     }}
                   />
                 </td>
-                {skills.map((s) => (
-                  <td key={s.id} className="check-cell">
-                    <input
-                      type="checkbox"
-                      checked={p.skill_ids.includes(s.id)}
-                      onChange={() => toggleSkill(p, s.id)}
-                    />
-                  </td>
-                ))}
+                <td className="skills-td">
+                  <div className="skill-pills">
+                    {p.skill_ids.map((sid) => {
+                      const skill = skills.find((s) => s.id === sid);
+                      if (!skill) return null;
+                      return (
+                        <span key={sid} className="skill-pill">
+                          {skill.name}
+                          <button
+                            className="pill-remove"
+                            onClick={() => toggleSkill(p, sid)}
+                            title="Quitar skill"
+                          >×</button>
+                        </span>
+                      );
+                    })}
+                    {skills.length > p.skill_ids.length && (
+                      <div className="skill-add-wrap">
+                        <button
+                          className="mini"
+                          onClick={() => setOpenMenu(openMenu === p.id ? null : p.id)}
+                        >
+                          + skill
+                        </button>
+                        {openMenu === p.id && (
+                          <SkillMenu
+                            person={p}
+                            skills={skills}
+                            onToggle={(sid) => toggleSkill(p, sid)}
+                            onClose={() => setOpenMenu(null)}
+                          />
+                        )}
+                      </div>
+                    )}
+                    {p.skill_ids.length === 0 && skills.length === 0 && (
+                      <span className="muted" style={{ fontSize: 12 }}>—</span>
+                    )}
+                  </div>
+                </td>
                 <td>
-                  <button className="mini danger" onClick={() => mutate('DELETE', `/api/people/${p.id}`)}>
-                    ×
-                  </button>
+                  <button
+                    className="mini danger"
+                    onClick={() => mutate('DELETE', `/api/people/${p.id}`)}
+                  >×</button>
                 </td>
               </tr>
             ))}
             {people.length === 0 && (
               <tr>
-                <td colSpan={skills.length + 3} className="empty">
-                  Añade a las personas del equipo.
-                </td>
+                <td colSpan={4} className="empty">Añade personas al equipo.</td>
               </tr>
             )}
           </tbody>
