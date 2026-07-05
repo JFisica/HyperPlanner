@@ -1,0 +1,25 @@
+# Añade este bloque a tu configuración de nginx
+# (p.ej. en /etc/nginx/sites-available/ehw y enlaza con sites-enabled)
+#
+# Luego recarga: sudo nginx -t && sudo systemctl reload nginx
+# Para HTTPS: sudo certbot --nginx -d ehw.tudominio.com
+
+server {
+    listen 80;
+    server_name ehw.tudominio.com;   # cambia por tu dominio o IP
+
+    # Tamaño máximo de upload (por si exportas imágenes grandes)
+    client_max_body_size 10M;
+
+    location / {
+        proxy_pass         http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+
+        # Evita timeout en exportaciones lentas
+        proxy_read_timeout 30s;
+    }
+}

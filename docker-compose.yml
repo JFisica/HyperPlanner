@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"   # solo accesible desde localhost; nginx hace de proxy
+    volumes:
+      - ehw_data:/data           # data.db persiste entre despliegues
+    environment:
+      - ADMIN_PIN=${ADMIN_PIN:-1234}
+      - DB_PATH=/data/data.db
+      - PORT=3000
+
+volumes:
+  ehw_data:
