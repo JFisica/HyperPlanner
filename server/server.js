@@ -13,7 +13,6 @@ if (!process.env.ADMIN_PIN) {
   console.warn('AVISO: ADMIN_PIN no definido, usando PIN por defecto "1234"');
 }
 
-// Writes require the shared PIN; reads are public.
 app.use('/api', (req, res, next) => {
   if (req.method === 'GET') return next();
   if (req.get('X-Admin-Pin') !== ADMIN_PIN) {
@@ -32,6 +31,7 @@ function getState() {
   const personSkills = db.prepare('SELECT * FROM person_skills').all();
   const taskSkills = db.prepare('SELECT * FROM task_skills').all();
   const taskDeps = db.prepare('SELECT * FROM task_deps').all();
+  const taskAssignments = db.prepare('SELECT * FROM task_assignments').all();
   const capacityOverrides = db.prepare('SELECT * FROM capacity_overrides').all();
 
   for (const p of people) {
@@ -40,6 +40,7 @@ function getState() {
   for (const t of tasks) {
     t.skill_ids = taskSkills.filter((x) => x.task_id === t.id).map((x) => x.skill_id);
     t.dep_ids = taskDeps.filter((x) => x.task_id === t.id).map((x) => x.depends_on_task_id);
+    t.assignments = taskAssignments.filter((x) => x.task_id === t.id);
   }
   return { people, skills, milestones, tasks, capacity_overrides: capacityOverrides };
 }
@@ -47,8 +48,6 @@ function getState() {
 const sendState = (res) => res.json(getState());
 
 app.get('/api/state', (req, res) => sendState(res));
-
-// Lets the client validate the PIN before storing it.
 app.post('/api/login', (req, res) => res.json({ ok: true }));
 
 // ---------- people ----------
@@ -144,8 +143,6 @@ function taskFields(body, current = {}) {
     milestone_id: body.milestone_id !== undefined ? (body.milestone_id || null) : (current.milestone_id ?? null),
     estimate_hours: body.estimate_hours !== undefined ? Number(body.estimate_hours) || 0 : (current.estimate_hours ?? 1),
     status: body.status !== undefined ? body.status : (current.status || 'backlog'),
-    assignee_id: body.assignee_id !== undefined ? (body.assignee_id || null) : (current.assignee_id ?? null),
-    assigned_date: body.assigned_date !== undefined ? (body.assigned_date || null) : (current.assigned_date ?? null),
     is_critical: body.is_critical !== undefined ? (body.is_critical ? 1 : 0) : (current.is_critical || 0),
     location: body.location !== undefined ? body.location : (current.location || ''),
   };
@@ -185,10 +182,8 @@ app.post('/api/tasks', (req, res) => {
   const { skill_ids, dep_ids } = req.body;
   const tx = db.transaction(() => {
     const { lastInsertRowid: id } = db
-      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status,
-                assignee_id, assigned_date, is_critical, location)
-                VALUES (@title, @description, @milestone_id, @estimate_hours, @status,
-                @assignee_id, @assigned_date, @is_critical, @location)`)
+      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location)
+                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location)`)
       .run(f);
     const err = validateDeps(Number(id), dep_ids);
     if (err) throw new Error(err);
@@ -214,9 +209,8 @@ app.put('/api/tasks/:id', (req, res) => {
   if (err) return res.status(400).json({ error: err });
   const tx = db.transaction(() => {
     db.prepare(`UPDATE tasks SET title=@title, description=@description, milestone_id=@milestone_id,
-                estimate_hours=@estimate_hours, status=@status, assignee_id=@assignee_id,
-                assigned_date=@assigned_date, is_critical=@is_critical, location=@location,
-                updated_at=datetime('now') WHERE id=@id`)
+                estimate_hours=@estimate_hours, status=@status, is_critical=@is_critical,
+                location=@location, updated_at=datetime('now') WHERE id=@id`)
       .run({ ...f, id });
     setTaskRelations(id, skill_ids, dep_ids);
   });
@@ -239,25 +233,27 @@ app.post('/api/assign', (req, res) => {
     return res.status(404).json({ error: 'Persona no encontrada' });
   }
   if (!date) return res.status(400).json({ error: 'Falta la fecha' });
-  const status = task.status === 'backlog' ? 'assigned' : task.status;
-  db.prepare(`UPDATE tasks SET assignee_id = ?, assigned_date = ?, status = ?,
-              updated_at = datetime('now') WHERE id = ?`)
-    .run(person_id, date, status, task_id);
+  db.prepare(`INSERT OR REPLACE INTO task_assignments (task_id, person_id, assigned_date) VALUES (?, ?, ?)`)
+    .run(task_id, person_id, date);
+  if (task.status === 'backlog') {
+    db.prepare(`UPDATE tasks SET status = 'assigned', updated_at = datetime('now') WHERE id = ?`).run(task_id);
+  }
   sendState(res);
 });
 
+// Removes one person from a task. If no assignees remain and status was 'assigned', reverts to 'backlog'.
 app.post('/api/unassign', (req, res) => {
-  const { task_id } = req.body;
+  const { task_id, person_id } = req.body;
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task_id);
   if (!task) return res.status(404).json({ error: 'Tarea no encontrada' });
-  const status = task.status === 'assigned' ? 'backlog' : task.status;
-  db.prepare(`UPDATE tasks SET assignee_id = NULL, assigned_date = NULL, status = ?,
-              updated_at = datetime('now') WHERE id = ?`)
-    .run(status, task_id);
+  db.prepare('DELETE FROM task_assignments WHERE task_id = ? AND person_id = ?').run(task_id, person_id);
+  const remaining = db.prepare('SELECT COUNT(*) c FROM task_assignments WHERE task_id = ?').get(task_id).c;
+  if (remaining === 0 && task.status === 'assigned') {
+    db.prepare(`UPDATE tasks SET status = 'backlog', updated_at = datetime('now') WHERE id = ?`).run(task_id);
+  }
   sendState(res);
 });
 
-// Per-day capacity override; hours = null removes the override.
 app.put('/api/capacity', (req, res) => {
   const { person_id, date, hours } = req.body;
   if (!db.prepare('SELECT 1 FROM people WHERE id = ?').get(person_id)) {

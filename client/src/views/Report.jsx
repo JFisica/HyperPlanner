@@ -1,13 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
-import {
-  byId,
-  tasksForPersonDay,
-  daysUntilDemo,
-  fmtHours,
-  formatDate,
-  STATUS_LABELS,
-} from '../lib';
+import { byId, tasksForPersonDay, daysUntilDemo, fmtHours, formatDate } from '../lib';
 
 export default function Report({ state, date, setDate, isPublic = false }) {
   const { people, tasks, milestones } = state;
@@ -26,10 +19,7 @@ export default function Report({ state, date, setDate, isPublic = false }) {
   async function exportPNG() {
     setExporting(true);
     try {
-      const canvas = await html2canvas(ref.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-      });
+      const canvas = await html2canvas(ref.current, { backgroundColor: '#ffffff', scale: 2 });
       const a = document.createElement('a');
       a.download = `parte-${date}.png`;
       a.href = canvas.toDataURL('image/png');
@@ -79,9 +69,7 @@ export default function Report({ state, date, setDate, isPublic = false }) {
             {dayTasks.map((t) => (
               <div key={t.id} className={`report-task ${t.is_critical ? 'critical' : ''}`}>
                 <span className="report-task-title">
-                  {t.is_critical ? '🔴 ' : ''}
-                  {t.title}
-                  {t.status === 'done' ? ' ✔' : ''}
+                  {t.is_critical ? '🔴 ' : ''}{t.title}{t.status === 'done' ? ' ✔' : ''}
                 </span>
                 <span className="report-task-meta">
                   {fmtHours(t.estimate_hours || 0)}h

@@ -87,7 +87,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="logo">⚡ EHW Task Command</span>
+        <span className="logo">⚡ EHW <span>Task Command</span></span>
         <nav>
           {TABS.map(([id, label]) => (
             <button
@@ -111,7 +111,7 @@ export default function App() {
           {tab === 'equipo' && <Team state={state} mutate={mutate} />}
           {tab === 'backlog' && <Backlog state={state} mutate={mutate} />}
           {tab === 'asignacion' && (
-            <Assign state={state} mutate={mutate} date={date} setDate={setDate} />
+            <Assign state={state} mutate={mutate} date={date} setDate={setDate} showToast={showToast} />
           )}
           {tab === 'parte' && <Report state={state} date={date} setDate={setDate} />}
         </main>

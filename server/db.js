@@ -35,8 +35,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   milestone_id INTEGER REFERENCES milestones(id) ON DELETE SET NULL,
   estimate_hours REAL DEFAULT 1,
   status TEXT DEFAULT 'backlog',
-  assignee_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
-  assigned_date TEXT,
   is_critical INTEGER DEFAULT 0,
   location TEXT DEFAULT '',
   created_at TEXT DEFAULT (datetime('now')),
@@ -51,6 +49,12 @@ CREATE TABLE IF NOT EXISTS task_deps (
   task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   depends_on_task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   PRIMARY KEY (task_id, depends_on_task_id)
+);
+CREATE TABLE IF NOT EXISTS task_assignments (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  assigned_date TEXT NOT NULL,
+  PRIMARY KEY (task_id, person_id)
 );
 CREATE TABLE IF NOT EXISTS capacity_overrides (
   person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,

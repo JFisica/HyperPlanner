@@ -6,7 +6,7 @@ export default function Backlog({ state, mutate }) {
   const [fMilestone, setFMilestone] = useState('');
   const [fStatus, setFStatus] = useState('');
   const [fSkill, setFSkill] = useState('');
-  const [editing, setEditing] = useState(null); // null | 'new' | task object
+  const [editing, setEditing] = useState(null);
 
   const tasksById = useMemo(() => byId(tasks), [tasks]);
   const milestonesById = useMemo(() => byId(milestones), [milestones]);
@@ -27,31 +27,23 @@ export default function Backlog({ state, mutate }) {
   return (
     <div className="view">
       <div className="row gap wrap">
-        <button className="primary" onClick={() => setEditing('new')}>
-          + Nueva tarea
-        </button>
+        <button className="primary" onClick={() => setEditing('new')}>+ Nueva tarea</button>
         <select value={fMilestone} onChange={(e) => setFMilestone(e.target.value)}>
           <option value="">Todos los hitos</option>
           {milestones.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
+            <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
         <select value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
           <option value="">Todos los estados</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
+            <option key={k} value={k}>{v}</option>
           ))}
         </select>
         <select value={fSkill} onChange={(e) => setFSkill(e.target.value)}>
           <option value="">Todas las skills</option>
           {skills.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
+            <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
         <span className="muted">{filtered.length} tareas</span>
@@ -66,7 +58,7 @@ export default function Backlog({ state, mutate }) {
               <th>h</th>
               <th>Skills</th>
               <th>Estado</th>
-              <th>Asignada a</th>
+              <th>Asignadas a</th>
               <th>Bloqueada por</th>
               <th></th>
             </tr>
@@ -75,11 +67,11 @@ export default function Backlog({ state, mutate }) {
             {filtered.map((t) => {
               const blk = blockers(t, tasksById);
               const m = t.milestone_id && milestonesById.get(t.milestone_id);
-              const assignee = t.assignee_id && peopleById.get(t.assignee_id);
+              const assignees = t.assignments.map((a) => peopleById.get(a.person_id)).filter(Boolean);
               return (
                 <tr key={t.id} className={t.status === 'done' ? 'dim' : ''}>
                   <td>
-                    {t.is_critical ? <span className="crit" title="Crítica">● </span> : null}
+                    {!!t.is_critical && <span className="crit" title="Crítica">● </span>}
                     <b>{t.title}</b>
                     {t.location && <span className="muted"> · {t.location}</span>}
                   </td>
@@ -91,7 +83,14 @@ export default function Backlog({ state, mutate }) {
                   <td>
                     <span className={`badge st-${t.status}`}>{STATUS_LABELS[t.status]}</span>
                   </td>
-                  <td>{assignee ? `${assignee.name} (${t.assigned_date || '—'})` : '—'}</td>
+                  <td className="skills-cell">
+                    {assignees.length
+                      ? assignees.map((p) => {
+                          const a = t.assignments.find((x) => x.person_id === p.id);
+                          return `${p.name} (${a?.assigned_date || '—'})`;
+                        }).join(', ')
+                      : '—'}
+                  </td>
                   <td>
                     {blk.length > 0 && (
                       <span className="blocked-tag" title={blk.map((b) => b.title).join(', ')}>
@@ -107,9 +106,7 @@ export default function Backlog({ state, mutate }) {
               );
             })}
             {filtered.length === 0 && (
-              <tr>
-                <td colSpan={8} className="empty">Sin tareas.</td>
-              </tr>
+              <tr><td colSpan={8} className="empty">Sin tareas.</td></tr>
             )}
           </tbody>
         </table>
@@ -198,38 +195,26 @@ export function TaskForm({ task, state, mutate, onClose }) {
             <select value={f.milestone_id} onChange={(e) => set('milestone_id', e.target.value)}>
               <option value="">—</option>
               {milestones.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.due_date})
-                </option>
+                <option key={m.id} value={m.id}>{m.name} ({m.due_date})</option>
               ))}
             </select>
           </label>
           <label>
             Horas
-            <input
-              type="number"
-              min="0"
-              step="0.5"
-              value={f.estimate_hours}
-              onChange={(e) => set('estimate_hours', e.target.value)}
-            />
+            <input type="number" min="0" step="0.5" value={f.estimate_hours}
+              onChange={(e) => set('estimate_hours', e.target.value)} />
           </label>
           <label>
             Lugar
-            <input
-              value={f.location}
-              placeholder="boxes, taller, pista…"
-              onChange={(e) => set('location', e.target.value)}
-            />
+            <input value={f.location} placeholder="boxes, taller, pista…"
+              onChange={(e) => set('location', e.target.value)} />
           </label>
           {task && (
             <label>
               Estado
               <select value={f.status} onChange={(e) => set('status', e.target.value)}>
                 {['backlog', 'assigned', 'in_progress', 'blocked', 'done'].map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
+                  <option key={s} value={s}>{s}</option>
                 ))}
               </select>
             </label>
@@ -237,12 +222,9 @@ export function TaskForm({ task, state, mutate, onClose }) {
         </div>
 
         <label className="check-label">
-          <input
-            type="checkbox"
-            checked={f.is_critical}
-            onChange={(e) => set('is_critical', e.target.checked)}
-          />
-          Crítica (marcado manual)
+          <input type="checkbox" checked={f.is_critical}
+            onChange={(e) => set('is_critical', e.target.checked)} />
+          Crítica (flag manual)
         </label>
 
         <fieldset>
@@ -250,11 +232,8 @@ export function TaskForm({ task, state, mutate, onClose }) {
           <div className="chip-list">
             {skills.map((s) => (
               <label key={s.id} className={f.skill_ids.includes(s.id) ? 'chip on' : 'chip'}>
-                <input
-                  type="checkbox"
-                  checked={f.skill_ids.includes(s.id)}
-                  onChange={() => toggle('skill_ids', s.id)}
-                />
+                <input type="checkbox" checked={f.skill_ids.includes(s.id)}
+                  onChange={() => toggle('skill_ids', s.id)} />
                 {s.name}
               </label>
             ))}
@@ -263,25 +242,17 @@ export function TaskForm({ task, state, mutate, onClose }) {
 
         <fieldset>
           <legend>Dependencias (bloqueada por)</legend>
-          <input
-            placeholder="Buscar tarea…"
-            value={depSearch}
-            onChange={(e) => setDepSearch(e.target.value)}
-          />
+          <input placeholder="Buscar tarea…" value={depSearch}
+            onChange={(e) => setDepSearch(e.target.value)} />
           <div className="chip-list">
             {depCandidates.map((t) => (
               <label key={t.id} className={f.dep_ids.includes(t.id) ? 'chip on' : 'chip'}>
-                <input
-                  type="checkbox"
-                  checked={f.dep_ids.includes(t.id)}
-                  onChange={() => toggle('dep_ids', t.id)}
-                />
+                <input type="checkbox" checked={f.dep_ids.includes(t.id)}
+                  onChange={() => toggle('dep_ids', t.id)} />
                 {t.title}
               </label>
             ))}
-            {depCandidates.length === 0 && (
-              <span className="muted">Escribe para buscar tareas…</span>
-            )}
+            {depCandidates.length === 0 && <span className="muted">Escribe para buscar…</span>}
           </div>
         </fieldset>
 

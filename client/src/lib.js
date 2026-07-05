@@ -1,5 +1,3 @@
-// Shared domain logic computed client-side from the full state.
-
 export const DEMO_DATE = '2026-07-18';
 
 export const STATUS_LABELS = {
@@ -35,23 +33,19 @@ export function byId(list) {
   return map;
 }
 
-// Person is eligible if they have ALL required skills.
 export function hasSkills(person, task) {
   const set = new Set(person.skill_ids);
   return task.skill_ids.every((sid) => set.has(sid));
 }
 
-// Non-done dependencies of a task -> the tasks blocking it.
 export function blockers(task, tasksById) {
   return task.dep_ids
     .map((id) => tasksById.get(id))
     .filter((t) => t && t.status !== 'done');
 }
 
-// Total estimate of all tasks that (transitively) depend on taskId.
-// "Unblocks the most work" for the urgency sort.
 export function descendantHours(taskId, tasks) {
-  const dependents = new Map(); // dep -> [tasks that depend on it]
+  const dependents = new Map();
   for (const t of tasks) {
     for (const did of t.dep_ids) {
       if (!dependents.has(did)) dependents.set(did, []);
@@ -73,8 +67,6 @@ export function descendantHours(taskId, tasks) {
   return hours;
 }
 
-// Urgency rule (CLAUDE.md): critical path (phase 2) > manual is_critical >
-// nearest milestone > most descendant hours.
 export function urgencySort(tasks, allTasks, milestonesById) {
   const descHours = new Map(tasks.map((t) => [t.id, descendantHours(t.id, allTasks)]));
   const due = (t) => {
@@ -89,8 +81,11 @@ export function urgencySort(tasks, allTasks, milestonesById) {
   });
 }
 
+// Tasks where person has an assignment on that date.
 export function tasksForPersonDay(tasks, personId, date) {
-  return tasks.filter((t) => t.assignee_id === personId && t.assigned_date === date);
+  return tasks.filter((t) =>
+    t.assignments.some((a) => a.person_id === personId && a.assigned_date === date)
+  );
 }
 
 export function loadForDay(tasks, personId, date) {
