@@ -377,75 +377,93 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
 }
 .pin-gate button { width: 100%; padding: 10px; font-size: 15px; font-weight: 700; }
 
-/* ---------- report (exported PNG — keep white background) ---------- */
+/* ---------- report ---------- */
 
 .public-wrap { padding: 12px; max-width: 1120px; margin: 0 auto; }
 
 .report {
   width: 1080px;
   max-width: 100%;
-  background: #fff;
-  color: #111;
+  background: var(--panel);
+  color: var(--text);
   padding: 36px 40px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 .report-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 4px solid #111;
+  border-bottom: 3px solid var(--border2);
   padding-bottom: 16px;
   margin-bottom: 20px;
 }
-.report-title { font-size: 34px; font-weight: 800; letter-spacing: 0.02em; color: #111; }
-.report-date { font-size: 22px; color: #555; margin-top: 4px; }
+.report-title { font-size: 34px; font-weight: 800; letter-spacing: 0.02em; color: #fff; }
+.report-date { font-size: 22px; color: var(--muted); margin-top: 4px; }
 .countdown {
   font-size: 44px;
   font-weight: 800;
-  color: #6d28d9;
+  color: var(--accent);
   text-align: right;
   line-height: 1;
 }
-.countdown.urgent { color: #dc2626; }
-.countdown-sub { display: block; font-size: 15px; font-weight: 600; color: #888; margin-top: 4px; }
+.countdown.urgent { color: var(--danger); }
+.countdown-sub { display: block; font-size: 15px; font-weight: 600; color: var(--muted); margin-top: 4px; }
 
 .report-card {
-  border: 2px solid #d0d0d8;
+  border: 1px solid var(--border2);
   border-radius: 8px;
   padding: 12px 18px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  background: var(--panel2);
 }
 .report-person {
   font-size: 24px;
   font-weight: 800;
-  color: #111;
+  color: #fff;
   display: flex;
   justify-content: space-between;
   margin-bottom: 6px;
 }
-.report-total { color: #666; font-weight: 700; }
+.report-total { color: var(--muted); font-weight: 700; }
 .report-task {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 16px;
   padding: 7px 0;
-  border-top: 1px solid #e8e8ec;
+  border-top: 1px solid var(--border);
   font-size: 20px;
-  color: #111;
+  color: var(--text);
 }
-.report-task.critical .report-task-title { color: #dc2626; font-weight: 800; }
+.report-task.critical .report-task-title { color: var(--danger); font-weight: 800; }
 .report-task-title { font-weight: 600; }
-.report-task-meta { color: #666; font-size: 17px; white-space: nowrap; }
-.report-empty { font-size: 20px; color: #888; }
+.report-task-meta { color: var(--muted); font-size: 17px; white-space: nowrap; }
+.report-empty { font-size: 20px; color: var(--muted); }
 .report-footer {
   margin-top: 16px;
   font-size: 16px;
-  color: #888;
-  border-top: 1px solid #e0e0e0;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
   padding-top: 10px;
 }
+
+/* Light overrides applied only during PNG export */
+.report.exporting { background: #fff !important; color: #111 !important; border-color: #ccc !important; }
+.report.exporting .report-header { border-bottom-color: #111 !important; }
+.report.exporting .report-title { color: #111 !important; }
+.report.exporting .report-date { color: #555 !important; }
+.report.exporting .countdown { color: #6d28d9 !important; }
+.report.exporting .countdown.urgent { color: #dc2626 !important; }
+.report.exporting .countdown-sub { color: #888 !important; }
+.report.exporting .report-card { background: #fff !important; border-color: #d0d0d8 !important; }
+.report.exporting .report-person { color: #111 !important; }
+.report.exporting .report-total { color: #666 !important; }
+.report.exporting .report-task { color: #111 !important; border-top-color: #e8e8ec !important; }
+.report.exporting .report-task.critical .report-task-title { color: #dc2626 !important; }
+.report.exporting .report-task-meta { color: #666 !important; }
+.report.exporting .report-empty { color: #888 !important; }
+.report.exporting .report-footer { color: #888 !important; border-top-color: #e0e0e0 !important; }
 
 @media (max-width: 900px) {
   .assign-layout { grid-template-columns: 1fr; }

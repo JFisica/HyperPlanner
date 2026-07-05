@@ -18,6 +18,8 @@ export default function Report({ state, date, setDate, isPublic = false }) {
 
   async function exportPNG() {
     setExporting(true);
+    // Temporarily switch report to light mode so the PNG is readable on any phone.
+    ref.current.classList.add('exporting');
     try {
       const canvas = await html2canvas(ref.current, { backgroundColor: '#ffffff', scale: 2 });
       const a = document.createElement('a');
@@ -25,6 +27,7 @@ export default function Report({ state, date, setDate, isPublic = false }) {
       a.href = canvas.toDataURL('image/png');
       a.click();
     } finally {
+      ref.current.classList.remove('exporting');
       setExporting(false);
     }
   }
