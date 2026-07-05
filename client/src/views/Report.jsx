@@ -135,8 +135,7 @@ export default function Report({ state, date, setDate, isPublic = false }) {
         <div className="report-header">
           <div className="report-date">{formatDate(date)} · {date}</div>
           <div className={`countdown ${dLeft <= 3 ? 'urgent' : ''}`}>
-            {dLeft > 0 ? `D−${dLeft}` : dLeft === 0 ? '¡DEMO HOY!' : 'post-demo'}
-            {dLeft > 0 && <span className="countdown-sub">para la demo</span>}
+            {dLeft > 0 ? `${dLeft} días hasta la demo` : dLeft === 0 ? '¡DEMO HOY!' : 'post-demo'}
           </div>
         </div>
 
