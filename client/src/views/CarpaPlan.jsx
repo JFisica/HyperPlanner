@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'ehw-carpa-plan-v1';
 const DEFAULT_SIZE = { width: 1280, height: 800 };
+const GRID_PX = 40;
 
 const TOOL_LABELS = {
   brush: 'Pincel',
@@ -13,13 +14,19 @@ const TOOL_LABELS = {
 
 const PALETTE = ['#111827', '#ef4444', '#f59e0b', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ffffff'];
 
-function loadSavedElements() {
-  if (typeof window === 'undefined') return [];
+function loadSavedPlan() {
+  if (typeof window === 'undefined') return { elements: [], metersPerGrid: 1 };
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return { elements: [], metersPerGrid: 1 };
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return { elements: parsed, metersPerGrid: 1 };
+    return {
+      elements: Array.isArray(parsed.elements) ? parsed.elements : [],
+      metersPerGrid: Number(parsed.metersPerGrid) || 1,
+    };
   } catch {
-    return [];
+    return { elements: [], metersPerGrid: 1 };
   }
 }
 
@@ -46,15 +53,46 @@ function drawLine(ctx, from, to, width, height) {
   ctx.stroke();
 }
 
+function distanceMeters(from, to, width, height, metersPerGrid) {
+  const dx = (pxX(to, width) - pxX(from, width)) / GRID_PX;
+  const dy = (pxY(to, height) - pxY(from, height)) / GRID_PX;
+  return Math.sqrt(dx * dx + dy * dy) * metersPerGrid;
+}
+
+function formatMeters(value) {
+  return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)} m`;
+}
+
+function drawLabel(ctx, text, x, y) {
+  ctx.save();
+  ctx.font = '600 12px system-ui, sans-serif';
+  const paddingX = 7;
+  const paddingY = 4;
+  const width = ctx.measureText(text).width + paddingX * 2;
+  const height = 18;
+  ctx.fillStyle = 'rgba(17, 24, 39, 0.84)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, 6);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#f8fafc';
+  ctx.textBaseline = 'top';
+  ctx.fillText(text, x + paddingX, y + paddingY);
+  ctx.restore();
+}
+
 export default function CarpaPlan() {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
-  const [elements, setElements] = useState(loadSavedElements);
+  const [{ elements, metersPerGrid }, setPlan] = useState(loadSavedPlan);
   const [tool, setTool] = useState('brush');
   const [color, setColor] = useState('#111827');
   const [size, setSize] = useState(6);
   const [fill, setFill] = useState(false);
   const [grid, setGrid] = useState(true);
+  const [zoom, setZoom] = useState(1);
   const [current, setCurrent] = useState(null);
   const [canvasSize, setCanvasSize] = useState(DEFAULT_SIZE);
 
@@ -62,11 +100,11 @@ export default function CarpaPlan() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(elements));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ elements, metersPerGrid }));
     } catch {
       // Ignore persistence failures.
     }
-  }, [elements]);
+  }, [elements, metersPerGrid]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -102,6 +140,8 @@ export default function CarpaPlan() {
     const { width, height } = canvasSize;
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
+    canvas.style.transform = `scale(${zoom})`;
+    canvas.style.transformOrigin = 'top left';
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -115,13 +155,13 @@ export default function CarpaPlan() {
       ctx.save();
       ctx.strokeStyle = 'rgba(17, 24, 39, 0.08)';
       ctx.lineWidth = 1;
-      for (let x = 0; x <= width; x += 40) {
+      for (let x = 0; x <= width; x += GRID_PX) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
         ctx.stroke();
       }
-      for (let y = 0; y <= height; y += 40) {
+      for (let y = 0; y <= height; y += GRID_PX) {
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(width, y);
@@ -160,6 +200,10 @@ export default function CarpaPlan() {
         }
       } else if (element.type === 'line') {
         drawLine(ctx, element.from, element.to, width, height);
+        const meters = distanceMeters(element.from, element.to, width, height, metersPerGrid);
+        const midX = (pxX(element.from, width) + pxX(element.to, width)) / 2;
+        const midY = (pxY(element.from, height) + pxY(element.to, height)) / 2;
+        drawLabel(ctx, formatMeters(meters), midX + 8, midY + 8);
       } else if (element.type === 'rect') {
         const x1 = pxX(element.from, width);
         const y1 = pxY(element.from, height);
@@ -175,6 +219,10 @@ export default function CarpaPlan() {
           ctx.globalAlpha = preview ? 0.65 : 1;
         }
         ctx.strokeRect(x, y, w, h);
+        const widthMeters = (w / GRID_PX) * metersPerGrid;
+        const heightMeters = (h / GRID_PX) * metersPerGrid;
+        const label = `${formatMeters(widthMeters)} × ${formatMeters(heightMeters)}`;
+        if (w > 70 && h > 34) drawLabel(ctx, label, x + 8, y + 8);
       } else if (element.type === 'text') {
         const fontSize = Math.max(12, element.size * width);
         ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
@@ -186,7 +234,7 @@ export default function CarpaPlan() {
 
     for (const element of elements) renderStroke(element, false);
     if (current) renderStroke(current, true);
-  }, [elements, current, canvasSize, grid]);
+  }, [elements, current, canvasSize, grid, metersPerGrid, zoom]);
 
   function pointerToPoint(event) {
     const canvas = canvasRef.current;
@@ -205,16 +253,19 @@ export default function CarpaPlan() {
     if (tool === 'text') {
       const text = window.prompt('Texto para el plano');
       if (!text || !text.trim()) return;
-      setElements((prev) => [
+      setPlan((prev) => ({
         ...prev,
-        {
-          type: 'text',
-          text: text.trim(),
-          point,
-          color,
-          size: Math.max(0.008, size / canvasSize.width),
-        },
-      ]);
+        elements: [
+          ...prev.elements,
+          {
+            type: 'text',
+            text: text.trim(),
+            point,
+            color,
+            size: Math.max(0.008, size / canvasSize.width),
+          },
+        ],
+      }));
       return;
     }
 
@@ -264,17 +315,20 @@ export default function CarpaPlan() {
       if ((prev.type === 'brush' || prev.type === 'eraser') && prev.points.length < 2) {
         return null;
       }
-      setElements((items) => [...items, prev]);
+      setPlan((state) => ({
+        ...state,
+        elements: [...state.elements, prev],
+      }));
       return null;
     });
   }
 
   function undo() {
-    setElements((prev) => prev.slice(0, -1));
+    setPlan((prev) => ({ ...prev, elements: prev.elements.slice(0, -1) }));
   }
 
   function clearCanvas() {
-    if (window.confirm('¿Borrar todo el plano?')) setElements([]);
+    if (window.confirm('¿Borrar todo el plano?')) setPlan((prev) => ({ ...prev, elements: [] }));
   }
 
   function downloadPNG() {
@@ -284,6 +338,16 @@ export default function CarpaPlan() {
     a.download = 'plano-carpa.png';
     a.href = canvas.toDataURL('image/png');
     a.click();
+  }
+
+  function changeZoom(delta) {
+    setZoom((prev) => Math.max(0.5, Math.min(2.5, Math.round((prev + delta) * 100) / 100)));
+  }
+
+  function handleWheel(e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    setZoom((prev) => Math.max(0.5, Math.min(2.5, prev + (e.deltaY > 0 ? -0.1 : 0.1))));
   }
 
   return (
@@ -325,6 +389,26 @@ export default function CarpaPlan() {
           </label>
         </div>
 
+        <label className="paint-scale">
+          Escala
+          <span>1 cuadrícula =</span>
+          <input
+            type="number"
+            min="0.1"
+            step="0.1"
+            value={metersPerGrid}
+            onChange={(e) => setPlan((prev) => ({ ...prev, metersPerGrid: Number(e.target.value) || 1 }))}
+          />
+          <span>m</span>
+        </label>
+
+        <div className="tool-group">
+          <button onClick={() => changeZoom(-0.1)}>-</button>
+          <button onClick={() => setZoom(1)}>100%</button>
+          <button onClick={() => changeZoom(0.1)}>+</button>
+          <span className="muted">Zoom {Math.round(zoom * 100)}%</span>
+        </div>
+
         <label className="paint-size">
           Grosor
           <input
@@ -354,7 +438,7 @@ export default function CarpaPlan() {
         </div>
       </div>
 
-      <div className="paint-stage" ref={wrapRef}>
+      <div className="paint-stage" ref={wrapRef} onWheel={handleWheel}>
         <canvas
           ref={canvasRef}
           className="paint-canvas"

@@ -699,6 +699,7 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
 }
 
 .paint-color,
+.paint-scale,
 .paint-size,
 .paint-toggle {
   display: inline-flex;
@@ -714,6 +715,10 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
   padding: 0;
   border: none;
   background: transparent;
+}
+
+.paint-scale input {
+  width: 84px;
 }
 
 .paint-size input {
@@ -741,6 +746,7 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
   cursor: crosshair;
   touch-action: none;
   box-shadow: 0 20px 60px rgba(0,0,0,0.32);
+  transition: transform 0.08s ease-out;
 }
 
 @media (max-width: 900px) {
