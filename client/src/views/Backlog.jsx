@@ -24,6 +24,10 @@ export default function Backlog({ state, mutate }) {
     mutate('DELETE', `/api/tasks/${t.id}`);
   }
 
+  function copyTask(t) {
+    mutate('POST', `/api/tasks/${t.id}/copy`);
+  }
+
   return (
     <div className="view">
       <div className="row gap wrap">
@@ -100,6 +104,7 @@ export default function Backlog({ state, mutate }) {
                   </td>
                   <td className="actions">
                     <button className="mini" onClick={() => setEditing(t)}>✎</button>
+                    <button className="mini" onClick={() => copyTask(t)} title="Duplicar tarea">⧉</button>
                     <button className="mini danger" onClick={() => deleteTask(t)}>×</button>
                   </td>
                 </tr>

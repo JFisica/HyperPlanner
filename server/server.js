@@ -159,6 +159,15 @@ function setTaskRelations(taskId, skillIds, depIds) {
   }
 }
 
+function cloneTask(task, suffix = ' (copia)') {
+  const { id, created_at, updated_at, ...rest } = task;
+  return {
+    ...rest,
+    title: `${task.title}${suffix}`,
+    status: 'backlog',
+  };
+}
+
 function validateDeps(taskId, depIds) {
   if (!Array.isArray(depIds)) return null;
   if (depIds.includes(taskId)) return 'Una tarea no puede depender de sí misma';
@@ -218,6 +227,24 @@ app.put('/api/tasks/:id', (req, res) => {
 
 app.delete('/api/tasks/:id', (req, res) => {
   db.prepare('DELETE FROM tasks WHERE id = ?').run(Number(req.params.id));
+  sendState(res);
+});
+
+app.post('/api/tasks/:id/copy', (req, res) => {
+  const id = Number(req.params.id);
+  const current = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  if (!current) return res.status(404).json({ error: 'Tarea no encontrada' });
+  const skillIds = db.prepare('SELECT skill_id FROM task_skills WHERE task_id = ?').all(id).map((r) => r.skill_id);
+  const depIds = db.prepare('SELECT depends_on_task_id FROM task_deps WHERE task_id = ?').all(id).map((r) => r.depends_on_task_id);
+  const tx = db.transaction(() => {
+    const copy = cloneTask(current);
+    const { lastInsertRowid: copyId } = db
+      .prepare(`INSERT INTO tasks (title, description, milestone_id, estimate_hours, status, is_critical, location)
+                VALUES (@title, @description, @milestone_id, @estimate_hours, @status, @is_critical, @location)`)
+      .run(copy);
+    setTaskRelations(Number(copyId), skillIds, depIds);
+  });
+  tx();
   sendState(res);
 });
 
