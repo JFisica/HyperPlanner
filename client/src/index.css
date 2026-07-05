@@ -480,7 +480,7 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
   max-width: 100%;
   background: var(--panel);
   color: var(--text);
-  padding: 36px 40px;
+  padding: 28px 32px;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -489,75 +489,101 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
   justify-content: space-between;
   align-items: center;
   border-bottom: 3px solid var(--border2);
-  padding-bottom: 16px;
-  margin-bottom: 20px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
 }
-.report-title { font-size: 34px; font-weight: 800; letter-spacing: 0.02em; color: #fff; }
-.report-date { font-size: 22px; color: var(--muted); margin-top: 4px; }
+.report-title { font-size: 30px; font-weight: 800; letter-spacing: 0.02em; color: #fff; }
+.report-date  { font-size: 18px; color: var(--muted); margin-top: 4px; }
 .countdown {
-  font-size: 44px;
+  font-size: 40px;
   font-weight: 800;
   color: var(--accent);
   text-align: right;
   line-height: 1;
 }
 .countdown.urgent { color: var(--danger); }
-.countdown-sub { display: block; font-size: 15px; font-weight: 600; color: var(--muted); margin-top: 4px; }
+.countdown-sub { display: block; font-size: 14px; font-weight: 600; color: var(--muted); margin-top: 4px; }
 
-.report-card {
-  border: 1px solid var(--border2);
+/* Calendar embedded in report */
+.report-cal-outer {
+  border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px 18px;
-  margin-bottom: 10px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.report-cal-outer .cal-time-col { background: var(--panel2); }
+.report-cal-outer .cal-events   { background: var(--panel); }
+
+/* Unscheduled section */
+.report-unscheduled {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
   background: var(--panel2);
 }
-.report-person {
-  font-size: 24px;
-  font-weight: 800;
-  color: #fff;
-  display: flex;
-  justify-content: space-between;
+.report-unscheduled-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   margin-bottom: 6px;
 }
-.report-total { color: var(--muted); font-weight: 700; }
-.report-task {
+.report-unscheduled-item {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
   gap: 16px;
-  padding: 7px 0;
+  padding: 4px 0;
   border-top: 1px solid var(--border);
-  font-size: 20px;
-  color: var(--text);
+  font-size: 14px;
 }
-.report-task.critical .report-task-title { color: var(--danger); font-weight: 800; }
-.report-task-title { font-weight: 600; }
-.report-task-meta { color: var(--muted); font-size: 17px; white-space: nowrap; }
-.report-empty { font-size: 20px; color: var(--muted); }
+
 .report-footer {
-  margin-top: 16px;
-  font-size: 16px;
+  margin-top: 10px;
+  font-size: 14px;
   color: var(--muted);
   border-top: 1px solid var(--border);
   padding-top: 10px;
 }
 
+/* cal-block-milestone label */
+.cal-block-milestone {
+  font-size: 10px;
+  opacity: 0.65;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Light overrides applied only during PNG export */
 .report.exporting { background: #fff !important; color: #111 !important; border-color: #ccc !important; }
-.report.exporting .report-header { border-bottom-color: #111 !important; }
-.report.exporting .report-title { color: #111 !important; }
-.report.exporting .report-date { color: #555 !important; }
-.report.exporting .countdown { color: #6d28d9 !important; }
+.report.exporting .report-header  { border-bottom-color: #ccc !important; }
+.report.exporting .report-title   { color: #111 !important; }
+.report.exporting .report-date    { color: #555 !important; }
+.report.exporting .countdown      { color: #6d28d9 !important; }
 .report.exporting .countdown.urgent { color: #dc2626 !important; }
-.report.exporting .countdown-sub { color: #888 !important; }
-.report.exporting .report-card { background: #fff !important; border-color: #d0d0d8 !important; }
-.report.exporting .report-person { color: #111 !important; }
-.report.exporting .report-total { color: #666 !important; }
-.report.exporting .report-task { color: #111 !important; border-top-color: #e8e8ec !important; }
-.report.exporting .report-task.critical .report-task-title { color: #dc2626 !important; }
-.report.exporting .report-task-meta { color: #666 !important; }
-.report.exporting .report-empty { color: #888 !important; }
-.report.exporting .report-footer { color: #888 !important; border-top-color: #e0e0e0 !important; }
+.report.exporting .countdown-sub  { color: #888 !important; }
+.report.exporting .report-footer  { color: #888 !important; border-top-color: #ddd !important; }
+.report.exporting .report-cal-outer { border-color: #ddd !important; }
+.report.exporting .cal-time-col   { background: #f8f8fb !important; border-color: #ddd !important; }
+.report.exporting .cal-hour-label { color: #777 !important; }
+.report.exporting .cal-events     { background: #fff !important; }
+.report.exporting .cal-hline      { background: #e5e7eb !important; }
+.report.exporting .cal-hline.half { background: #f3f4f6 !important; }
+.report.exporting .cal-hline.midday { background: #9ca3af !important; }
+.report.exporting .cal-block      { color: #1a1030 !important; }
+.report.exporting .cal-block.st-backlog     { background: #ede9fe !important; border-left-color: #7c3aed !important; color: #4c1d95 !important; }
+.report.exporting .cal-block.st-assigned    { background: #ede9fe !important; border-left-color: #7c3aed !important; color: #4c1d95 !important; }
+.report.exporting .cal-block.st-in_progress { background: #fef3c7 !important; border-left-color: #d97706 !important; color: #78350f !important; }
+.report.exporting .cal-block.st-blocked     { background: #fee2e2 !important; border-left-color: #dc2626 !important; color: #7f1d1d !important; }
+.report.exporting .cal-block.st-done        { background: #d1fae5 !important; border-left-color: #059669 !important; color: #065f46 !important; opacity: 1 !important; }
+.report.exporting .cal-block-time           { opacity: 0.6 !important; }
+.report.exporting .assignee-pill            { background: #ddd6fe !important; border-color: #a78bfa !important; color: #2e1065 !important; }
+.report.exporting .report-unscheduled       { background: #f9fafb !important; border-color: #e5e7eb !important; }
+.report.exporting .report-unscheduled-title { color: #6b7280 !important; }
+.report.exporting .report-unscheduled-item  { border-top-color: #e5e7eb !important; color: #111 !important; }
+.report.exporting .cal-empty-hint           { color: #9ca3af !important; }
 
 @media (max-width: 900px) {
   .schedule-sidebar { width: 160px; }
