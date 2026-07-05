@@ -58,9 +58,14 @@ CREATE TABLE IF NOT EXISTS task_assignments (
   task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
   assigned_date TEXT NOT NULL,
-  start_time TEXT,   -- "08:00", null if unscheduled
-  end_time TEXT,     -- "12:00", null if unscheduled
   PRIMARY KEY (task_id, person_id)
+);
+CREATE TABLE IF NOT EXISTS task_schedule (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  PRIMARY KEY (task_id, date)
 );
 CREATE TABLE IF NOT EXISTS capacity_overrides (
   person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,

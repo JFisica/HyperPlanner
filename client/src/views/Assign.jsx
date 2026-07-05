@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  STATUS_LABELS,
   byId,
   blockers,
   urgencySort,
@@ -14,20 +13,20 @@ import {
 const PX_PER_HOUR = 80;
 const START_HOUR = 7;
 const END_HOUR = 22;
-const TOTAL_HOURS = END_HOUR - START_HOUR;
-const TRACK_WIDTH = TOTAL_HOURS * PX_PER_HOUR;
+const TOTAL_H = END_HOUR - START_HOUR;
+const CAL_HEIGHT = TOTAL_H * PX_PER_HOUR;
 
-function timeToX(time) {
+function timeToY(time) {
   const [h, m] = time.split(':').map(Number);
   return (h - START_HOUR + m / 60) * PX_PER_HOUR;
 }
 
-function xToTime(rawX, durationHours = 1) {
-  const snapped = Math.round((rawX / PX_PER_HOUR) * 2) / 2;
-  const clamped = Math.max(0, Math.min(snapped, TOTAL_HOURS - durationHours));
-  const absHour = START_HOUR + clamped;
-  const h = Math.floor(absHour);
-  const m = absHour % 1 >= 0.5 ? 30 : 0;
+function yToTime(y, durationH = 1) {
+  const snapped = Math.round((y / PX_PER_HOUR) * 2) / 2;
+  const clamped = Math.max(0, Math.min(snapped, TOTAL_H - durationH));
+  const absH = START_HOUR + clamped;
+  const h = Math.floor(absH);
+  const m = absH % 1 >= 0.5 ? 30 : 0;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
@@ -37,133 +36,163 @@ function addHoursToTime(time, hours) {
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
-function timeToMinutes(time) {
-  if (!time) return END_HOUR * 60;
-  const [h, m] = time.split(':').map(Number);
+function timeToMin(t) {
+  const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
 }
 
-function computeLanes(blocks) {
-  const occupied = []; // each lane: end minute of last block in that lane
-  const result = blocks.map((b) => {
-    const startMin = timeToMinutes(b.assignment.start_time);
-    const endMin = timeToMinutes(b.assignment.end_time);
-    let lane = occupied.findIndex((endM) => endM <= startMin);
-    if (lane === -1) { lane = occupied.length; occupied.push(endMin); }
-    else occupied[lane] = endMin;
-    return { ...b, lane };
+// Google Calendar-style column layout for overlapping blocks.
+function layoutBlocks(blocks) {
+  if (!blocks.length) return [];
+  const sorted = [...blocks].sort((a, b) => timeToMin(a.startTime) - timeToMin(b.startTime));
+  const cols = []; // cols[i] = endMin of last block in column i
+  const withCol = sorted.map((b) => {
+    const startMin = timeToMin(b.startTime);
+    const endMin   = timeToMin(b.endTime);
+    let col = cols.findIndex((end) => end <= startMin);
+    if (col === -1) { col = cols.length; cols.push(endMin); }
+    else cols[col] = endMin;
+    return { ...b, col };
   });
-  return { blocks: result, laneCount: Math.max(1, occupied.length) };
+  // For each block, count how many columns are active during its span.
+  return withCol.map((b) => {
+    const startMin = timeToMin(b.startTime);
+    const endMin   = timeToMin(b.endTime);
+    const concurrent = withCol.filter(
+      (o) => timeToMin(o.startTime) < endMin && timeToMin(o.endTime) > startMin
+    );
+    const localCols = Math.max(...concurrent.map((o) => o.col + 1));
+    return { ...b, localCols };
+  });
 }
-
-const LANE_H = 44;
-const LANE_PAD = 6;
 
 export default function Assign({ state, mutate, date, setDate, showToast }) {
   const { people, tasks, milestones, capacity_overrides, settings } = state;
-  const [preview, setPreview] = useState(null); // {personId, startTime, durationHours}
+  const [dragOverTask, setDragOverTask] = useState(null);
+  const [preview, setPreview] = useState(null); // {startTime, durationHours}
   const dragRef = useRef(null);
 
-  const tasksById = useMemo(() => byId(tasks), [tasks]);
+  const tasksById     = useMemo(() => byId(tasks), [tasks]);
   const milestonesById = useMemo(() => byId(milestones), [milestones]);
+  const peopleById    = useMemo(() => byId(people), [people]);
 
-  // Tasks that have no assignment for today
-  const assignedTaskIds = useMemo(() => {
-    const ids = new Set();
-    for (const t of tasks) {
-      if (t.assignments.some((a) => a.assigned_date === date)) ids.add(t.id);
-    }
-    return ids;
-  }, [tasks, date]);
+  // Tasks that have a time slot today.
+  const scheduledToday = useMemo(
+    () => tasks.filter((t) => t.schedule?.some((s) => s.date === date)),
+    [tasks, date]
+  );
 
-  const unassigned = useMemo(() => {
-    const pool = tasks.filter((t) => !assignedTaskIds.has(t.id) && t.status !== 'done');
+  // Tasks with no time slot today and not done → sidebar list.
+  const unscheduled = useMemo(() => {
+    const pool = tasks.filter(
+      (t) => t.status !== 'done' && !t.schedule?.some((s) => s.date === date)
+    );
     const free = pool.filter((t) => blockers(t, tasksById).length === 0);
     const blk  = pool.filter((t) => blockers(t, tasksById).length > 0);
     return [
       ...urgencySort(free, tasks, milestonesById),
       ...urgencySort(blk,  tasks, milestonesById),
     ];
-  }, [tasks, assignedTaskIds, tasksById, milestonesById]);
+  }, [tasks, date, tasksById, milestonesById]);
 
-  function personBlocks(personId) {
-    const blocks = [];
-    for (const task of tasks) {
-      const a = task.assignments.find(
-        (x) => x.person_id === personId && x.assigned_date === date && x.start_time
-      );
-      if (a) {
-        const end_time = a.end_time || addHoursToTime(a.start_time, task.estimate_hours || 1);
-        blocks.push({ task, assignment: { ...a, end_time } });
-      }
-    }
-    return blocks.sort((a, b) =>
-      a.assignment.start_time.localeCompare(b.assignment.start_time)
-    );
-  }
+  // Build positioned blocks for the calendar.
+  const layoutedBlocks = useMemo(() => {
+    const blocks = scheduledToday.map((task) => {
+      const sched = task.schedule.find((s) => s.date === date);
+      return { task, sched, startTime: sched.start_time, endTime: sched.end_time };
+    });
+    return layoutBlocks(blocks);
+  }, [scheduledToday, date]);
 
   // ---- drag handlers ----
 
-  function onSidebarDragStart(e, task) {
+  function onPersonDragStart(e, person) {
+    dragRef.current = { type: 'person', personId: person.id };
+    e.dataTransfer.effectAllowed = 'copy';
+  }
+
+  function onUnscheduledDragStart(e, task) {
     dragRef.current = {
-      type: 'sidebar',
+      type: 'new-task',
       taskId: task.id,
       durationHours: task.estimate_hours || 1,
-      offsetPx: 0,
+      offsetY: 0,
     };
     e.dataTransfer.effectAllowed = 'copy';
   }
 
-  function onBlockDragStart(e, task, personId) {
+  function onBlockDragStart(e, task) {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     dragRef.current = {
-      type: 'block',
+      type: 'task',
       taskId: task.id,
-      fromPersonId: personId,
       durationHours: task.estimate_hours || 1,
-      offsetPx: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
     };
     e.dataTransfer.effectAllowed = 'move';
   }
 
-  function onTrackDragOver(e, personId) {
+  function onCalDragOver(e) {
     e.preventDefault();
     const drag = dragRef.current;
-    if (!drag) return;
+    if (!drag || drag.type === 'person') return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const rawX = e.clientX - rect.left - drag.offsetPx;
-    const startTime = xToTime(rawX, drag.durationHours);
-    setPreview({ personId, startTime, durationHours: drag.durationHours, taskId: drag.taskId });
+    const rawY = e.clientY - rect.top - (drag.offsetY || 0);
+    setPreview({ startTime: yToTime(rawY, drag.durationHours), durationHours: drag.durationHours });
   }
 
-  function onTrackDragLeave(e) {
-    // Only clear if leaving the track entirely (not entering a child)
+  function onCalDragLeave(e) {
     if (!e.currentTarget.contains(e.relatedTarget)) setPreview(null);
   }
 
-  async function onTrackDrop(e, personId) {
+  async function onCalDrop(e) {
     e.preventDefault();
     setPreview(null);
     const drag = dragRef.current;
     dragRef.current = null;
-    if (!drag) return;
-
+    if (!drag || drag.type === 'person') return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const rawX = e.clientX - rect.left - drag.offsetPx;
-    const startTime = xToTime(rawX, drag.durationHours);
-    const endTime = addHoursToTime(startTime, drag.durationHours);
+    const rawY = e.clientY - rect.top - (drag.offsetY || 0);
+    const startTime = yToTime(rawY, drag.durationHours);
+    const endTime   = addHoursToTime(startTime, drag.durationHours);
+    await mutate('PUT', '/api/schedule', { task_id: drag.taskId, date, start_time: startTime, end_time: endTime });
+  }
 
-    if (drag.type === 'sidebar' || drag.fromPersonId === personId) {
-      await mutate('POST', '/api/assign', {
-        task_id: drag.taskId, person_id: personId, date, start_time: startTime, end_time: endTime,
-      });
-    } else {
-      await mutate('POST', '/api/assign/move', {
-        task_id: drag.taskId, from_person_id: drag.fromPersonId, to_person_id: personId,
-        date, start_time: startTime, end_time: endTime,
-      });
+  function onTaskDragOver(e, taskId) {
+    e.preventDefault();
+    const drag = dragRef.current;
+    if (drag?.type === 'person') {
+      e.stopPropagation(); // keep the person-drop on task, not calendar
+      setDragOverTask(taskId);
     }
+    // task/new-task drags bubble up to cal for preview
+  }
+
+  function onTaskDragLeave(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) setDragOverTask(null);
+  }
+
+  async function onTaskDrop(e, task) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    if (drag.type === 'person') {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOverTask(null);
+      dragRef.current = null;
+      if (task.assignments.some((a) => a.person_id === drag.personId && a.assigned_date === date)) return;
+      const person = peopleById.get(drag.personId);
+      const warnings = [];
+      if (blockers(task, tasksById).length)
+        warnings.push(`Bloqueada por: ${blockers(task, tasksById).map((b) => b.title).join(', ')}`);
+      const load = loadForDay(tasks, drag.personId, date) + (task.estimate_hours || 0);
+      const cap  = capacityForDay(person, date, capacity_overrides, settings);
+      if (load > cap) warnings.push(`Sobrecarga: ${fmtHours(load)}/${fmtHours(cap)}h`);
+      if (warnings.length) showToast?.('⚠ ' + warnings.join(' · '), 'warn');
+      await mutate('POST', '/api/assign', { task_id: task.id, person_id: drag.personId, date });
+    }
+    // task-type drags bubble to cal drop handler
   }
 
   function editDayCapacity(person) {
@@ -179,25 +208,25 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
     });
   }
 
-  const hours = Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => START_HOUR + i);
+  const hours     = Array.from({ length: TOTAL_H + 1 }, (_, i) => START_HOUR + i);
+  const halfHours = Array.from({ length: TOTAL_H }, (_, i) => START_HOUR + i);
 
   return (
     <div className="view schedule-page">
-      {/* Top bar */}
       <div className="row gap">
         <label className="row gap">
           Día <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
         <span className="muted">{formatDate(date)}</span>
         <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
-          Arrastra tareas al horario · mueve bloques para reorganizar
+          Arrastra tareas al horario · arrastra personas a las tareas
         </span>
       </div>
 
       <div className="schedule-layout">
         {/* ---- Sidebar ---- */}
         <div className="schedule-sidebar">
-          <div className="col-label">Equipo</div>
+          <div className="col-label">Personas</div>
           {people.map((p) => {
             const load = loadForDay(tasks, p.id, date);
             const cap  = capacityForDay(p, date, capacity_overrides, settings);
@@ -205,8 +234,15 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
             const pct  = cap > 0 ? Math.min(100, (load / cap) * 100) : 100;
             const hasOverride = capacity_overrides.some((o) => o.person_id === p.id && o.date === date);
             return (
-              <div key={p.id} className="sidebar-person">
+              <div
+                key={p.id}
+                className="sidebar-person"
+                draggable
+                onDragStart={(e) => onPersonDragStart(e, p)}
+                title="Arrastra a una tarea del horario para asignar"
+              >
                 <div className="person-head">
+                  <span className="drag-handle">⠿</span>
                   <b className="person-name">{p.name}</b>
                   <span
                     className={`load ${over ? 'over' : ''}`}
@@ -222,19 +258,20 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
               </div>
             );
           })}
+          {people.length === 0 && <p className="empty" style={{ fontSize: 12 }}>Añade personas en Equipo.</p>}
 
-          <div className="col-label" style={{ marginTop: 14 }}>Sin asignar</div>
-          <div className="sidebar-tasks">
-            {unassigned.map((t) => {
+          <div className="col-label" style={{ marginTop: 14 }}>Sin horario</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {unscheduled.map((t) => {
               const blk = blockers(t, tasksById);
               const m   = t.milestone_id && milestonesById.get(t.milestone_id);
               return (
                 <div
                   key={t.id}
-                  className={`sidebar-task ${blk.length ? 'blocked' : ''}`}
+                  className={`sidebar-task${blk.length ? ' blocked' : ''}`}
                   draggable
-                  onDragStart={(e) => onSidebarDragStart(e, t)}
-                  title="Arrastra al horario para asignar"
+                  onDragStart={(e) => onUnscheduledDragStart(e, t)}
+                  title={`Arrastra al horario · ${fmtHours(t.estimate_hours || 0)}h estimadas`}
                 >
                   <div className="sidebar-task-name">
                     {!!t.is_critical && <span className="crit">● </span>}
@@ -243,156 +280,163 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                   <div className="sidebar-task-meta">
                     {fmtHours(t.estimate_hours || 0)}h
                     {m ? ` · ${m.name}` : ''}
-                    {blk.length ? ' · ⛔ bloqueada' : ''}
+                    {blk.length ? ' · ⛔' : ''}
                   </div>
                 </div>
               );
             })}
-            {unassigned.length === 0 && (
-              <p className="empty" style={{ fontSize: 12, margin: '4px 0' }}>Todo asignado.</p>
+            {unscheduled.length === 0 && (
+              <p className="empty" style={{ fontSize: 12 }}>Todo planificado.</p>
             )}
           </div>
-
-          {/* Tasks assigned but without time slot */}
-          {(() => {
-            const unscheduled = tasks.filter((t) => {
-              if (t.status === 'done') return false;
-              return t.assignments.some(
-                (a) => a.assigned_date === date && !a.start_time
-              );
-            });
-            if (unscheduled.length === 0) return null;
-            return (
-              <>
-                <div className="col-label" style={{ marginTop: 14 }}>Sin horario</div>
-                <div className="sidebar-tasks">
-                  {unscheduled.map((t) => (
-                    <div key={t.id} className="sidebar-task">
-                      <div className="sidebar-task-name">{t.title}</div>
-                      <div className="sidebar-task-meta">
-                        {fmtHours(t.estimate_hours || 0)}h · <span className={`badge st-${t.status}`}>{STATUS_LABELS[t.status]}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            );
-          })()}
         </div>
 
-        {/* ---- Schedule grid ---- */}
-        <div className="schedule-main">
-          {/* Sticky time header */}
-          <div className="schedule-header">
-            <div className="row-name-col" />
-            <div className="time-header" style={{ width: TRACK_WIDTH }}>
+        {/* ---- Vertical calendar ---- */}
+        <div className="cal-wrap">
+          <div className="cal-inner" style={{ height: CAL_HEIGHT + 40 }}>
+            {/* Time labels */}
+            <div className="cal-time-col">
               {hours.map((h) => (
                 <div
                   key={h}
-                  className="hour-label"
-                  style={{ left: (h - START_HOUR) * PX_PER_HOUR }}
+                  className="cal-hour-label"
+                  style={{ top: (h - START_HOUR) * PX_PER_HOUR }}
                 >
                   {String(h).padStart(2, '0')}:00
                 </div>
               ))}
             </div>
-          </div>
 
-          {/* Person rows */}
-          <div className="schedule-body">
-            {people.map((p) => {
-              const rawBlocks = personBlocks(p.id);
-              const { blocks: laned, laneCount } = computeLanes(rawBlocks);
-              const rowH = LANE_PAD * 2 + laneCount * LANE_H;
+            {/* Events area — drop target for scheduling tasks */}
+            <div
+              className="cal-events"
+              onDragOver={onCalDragOver}
+              onDragLeave={onCalDragLeave}
+              onDrop={onCalDrop}
+            >
+              {/* Hour lines */}
+              {hours.map((h) => (
+                <div
+                  key={`hl${h}`}
+                  className={`cal-hline${h === 12 ? ' midday' : ''}`}
+                  style={{ top: (h - START_HOUR) * PX_PER_HOUR }}
+                />
+              ))}
+              {/* Half-hour lines */}
+              {halfHours.map((h) => (
+                <div
+                  key={`hh${h}`}
+                  className="cal-hline half"
+                  style={{ top: (h - START_HOUR + 0.5) * PX_PER_HOUR }}
+                />
+              ))}
 
-              return (
-                <div key={p.id} className="schedule-row" style={{ height: rowH }}>
-                  <div className="row-name-col">
-                    <span className="row-name-text">{p.name}</span>
-                  </div>
+              {/* Task blocks */}
+              {layoutedBlocks.map(({ task, sched, startTime, endTime, col, localCols }) => {
+                const top    = timeToY(startTime);
+                const height = Math.max(
+                  (timeToMin(endTime) - timeToMin(startTime)) / 60 * PX_PER_HOUR - 2,
+                  24
+                );
+                const leftPct  = (col / localCols) * 100;
+                const widthPct = (1 / localCols) * 100 - 0.5;
+                const todayAssignees = task.assignments.filter((a) => a.assigned_date === date);
+                const blk = blockers(task, tasksById);
+                const isDropTarget = dragOverTask === task.id;
+
+                return (
                   <div
-                    className="row-track"
-                    style={{ width: TRACK_WIDTH }}
-                    onDragOver={(e) => onTrackDragOver(e, p.id)}
-                    onDragLeave={onTrackDragLeave}
-                    onDrop={(e) => onTrackDrop(e, p.id)}
+                    key={task.id}
+                    className={`cal-block st-${task.status}${!!task.is_critical ? ' critical' : ''}${isDropTarget ? ' drop-active' : ''}`}
+                    style={{ top, height, left: `${leftPct}%`, width: `${widthPct}%` }}
+                    draggable
+                    onDragStart={(e) => onBlockDragStart(e, task)}
+                    onDragOver={(e) => onTaskDragOver(e, task.id)}
+                    onDragLeave={onTaskDragLeave}
+                    onDrop={(e) => onTaskDrop(e, task)}
                   >
-                    {/* Grid lines every hour */}
-                    {hours.map((h) => (
-                      <div
-                        key={h}
-                        className={`grid-line ${h === 12 ? 'midday' : ''}`}
-                        style={{ left: (h - START_HOUR) * PX_PER_HOUR }}
-                      />
-                    ))}
+                    <div className="cal-block-header">
+                      <span className="cal-block-title">
+                        {!!task.is_critical && <span className="crit">●</span>} {task.title}
+                      </span>
+                      <span className="cal-block-time">{startTime}–{endTime}</span>
+                    </div>
 
-                    {/* Task blocks */}
-                    {laned.map(({ task, assignment, lane }) => {
-                      const x = timeToX(assignment.start_time);
-                      const w = Math.max((task.estimate_hours || 1) * PX_PER_HOUR - 2, 32);
-                      const top = LANE_PAD + lane * LANE_H;
-                      const height = LANE_H - 4;
-                      const blk = blockers(task, tasksById);
-
-                      return (
-                        <div
-                          key={task.id}
-                          className={`task-block st-${task.status}${!!task.is_critical ? ' critical' : ''}`}
-                          style={{ left: x, width: w, top, height }}
-                          draggable
-                          onDragStart={(e) => onBlockDragStart(e, task, p.id)}
-                          title={`${task.title} · ${assignment.start_time}–${assignment.end_time}`}
-                        >
-                          <span className="block-title">{task.title}</span>
-                          <span className="block-time">{assignment.start_time}</span>
-                          {blk.length > 0 && <span title={blk.map((b) => b.title).join(', ')}>⛔</span>}
-                          <div className="block-actions">
-                            {task.status === 'assigned' && (
-                              <button className="block-btn" title="Empezar"
-                                onClick={() => mutate('PUT', `/api/tasks/${task.id}`, { status: 'in_progress' })}>▶</button>
-                            )}
-                            {task.status === 'in_progress' && (
-                              <button className="block-btn ok" title="Marcar hecha"
-                                onClick={() => mutate('PUT', `/api/tasks/${task.id}`, { status: 'done' })}>✔</button>
-                            )}
-                            {task.status === 'done' && (
-                              <button className="block-btn" title="Reabrir"
-                                onClick={() => mutate('PUT', `/api/tasks/${task.id}`, { status: 'in_progress' })}>↩</button>
-                            )}
-                            {(task.status === 'assigned' || task.status === 'in_progress') && (
-                              <button className="block-btn warn" title="Bloquear"
-                                onClick={() => mutate('PUT', `/api/tasks/${task.id}`, { status: 'blocked' })}>⛔</button>
-                            )}
-                            {task.status === 'blocked' && (
-                              <button className="block-btn" title="Reanudar"
-                                onClick={() => mutate('PUT', `/api/tasks/${task.id}`, { status: 'in_progress' })}>▶</button>
-                            )}
-                            <button className="block-btn danger" title="Quitar asignación"
-                              onClick={() => mutate('POST', '/api/unassign', { task_id: task.id, person_id: p.id })}>×</button>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {/* Drop preview ghost */}
-                    {preview?.personId === p.id && (
-                      <div
-                        className="task-block preview"
-                        style={{
-                          left: timeToX(preview.startTime),
-                          width: Math.max(preview.durationHours * PX_PER_HOUR - 2, 32),
-                          top: LANE_PAD,
-                          height: LANE_H - 4,
-                        }}
-                      />
+                    {height >= 44 && (
+                      <div className="cal-block-assignees">
+                        {todayAssignees.map((a) => {
+                          const person = peopleById.get(a.person_id);
+                          if (!person) return null;
+                          return (
+                            <span key={a.person_id} className="assignee-pill">
+                              {person.name}
+                              <button
+                                className="pill-remove"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  mutate('POST', '/api/unassign', { task_id: task.id, person_id: a.person_id });
+                                }}
+                              >×</button>
+                            </span>
+                          );
+                        })}
+                        {isDropTarget && dragRef.current?.type === 'person' && (
+                          <span className="assignee-pill ghost">
+                            {peopleById.get(dragRef.current.personId)?.name}
+                          </span>
+                        )}
+                        {todayAssignees.length === 0 && !isDropTarget && (
+                          <span className="cal-drop-hint">Suelta persona aquí</span>
+                        )}
+                      </div>
                     )}
+
+                    {blk.length > 0 && (
+                      <div className="cal-block-blocked">⛔ {blk.map((b) => b.title).join(', ')}</div>
+                    )}
+
+                    <div className="cal-block-actions">
+                      {task.status === 'assigned' && (
+                        <button className="mini" onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'in_progress' }); }}>▶ Empezar</button>
+                      )}
+                      {task.status === 'in_progress' && (
+                        <button className="mini ok" onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'done' }); }}>✔ Hecha</button>
+                      )}
+                      {task.status === 'done' && (
+                        <button className="mini" onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'in_progress' }); }}>↩ Reabrir</button>
+                      )}
+                      {(task.status === 'assigned' || task.status === 'in_progress') && (
+                        <button className="mini danger" onClick={(e) => { e.stopPropagation(); mutate('PUT', `/api/tasks/${task.id}`, { status: 'blocked' }); }}>⛔ Bloquear</button>
+                      )}
+                      <button
+                        className="mini"
+                        onClick={(e) => { e.stopPropagation(); mutate('PUT', '/api/schedule', { task_id: task.id, date, start_time: null }); }}
+                        title="Quitar del horario"
+                      >↑ Sin hora</button>
+                    </div>
                   </div>
+                );
+              })}
+
+              {/* Drop preview ghost */}
+              {preview && (
+                <div
+                  className="cal-block preview"
+                  style={{
+                    top: timeToY(preview.startTime),
+                    height: Math.max(preview.durationHours * PX_PER_HOUR - 2, 24),
+                    left: 0,
+                    right: 4,
+                  }}
+                />
+              )}
+
+              {scheduledToday.length === 0 && (
+                <div className="cal-empty-hint">
+                  Arrastra tareas del panel izquierdo para planificar el día
                 </div>
-              );
-            })}
-            {people.length === 0 && (
-              <p className="empty" style={{ padding: 20 }}>Añade personas en la pestaña Equipo.</p>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>

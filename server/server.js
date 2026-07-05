@@ -20,6 +20,7 @@ function getState() {
   const taskSkills = db.prepare('SELECT * FROM task_skills').all();
   const taskDeps = db.prepare('SELECT * FROM task_deps').all();
   const taskAssignments = db.prepare('SELECT * FROM task_assignments').all();
+  const taskSchedule = db.prepare('SELECT * FROM task_schedule').all();
   const capacityOverrides = db.prepare('SELECT * FROM capacity_overrides').all();
   const settingsRows = db.prepare('SELECT * FROM settings').all();
   const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
@@ -31,6 +32,7 @@ function getState() {
     t.skill_ids = taskSkills.filter((x) => x.task_id === t.id).map((x) => x.skill_id);
     t.dep_ids = taskDeps.filter((x) => x.task_id === t.id).map((x) => x.depends_on_task_id);
     t.assignments = taskAssignments.filter((x) => x.task_id === t.id);
+    t.schedule = taskSchedule.filter((x) => x.task_id === t.id);
   }
   return { people, skills, milestones, tasks, capacity_overrides: capacityOverrides, settings };
 }
@@ -223,34 +225,32 @@ app.delete('/api/tasks/:id', (req, res) => {
 // ---------- assignment ----------
 
 app.post('/api/assign', (req, res) => {
-  const { task_id, person_id, date, start_time = null, end_time = null } = req.body;
+  const { task_id, person_id, date } = req.body;
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task_id);
   if (!task) return res.status(404).json({ error: 'Tarea no encontrada' });
   if (!db.prepare('SELECT 1 FROM people WHERE id = ?').get(person_id)) {
     return res.status(404).json({ error: 'Persona no encontrada' });
   }
   if (!date) return res.status(400).json({ error: 'Falta la fecha' });
-  db.prepare(`INSERT OR REPLACE INTO task_assignments (task_id, person_id, assigned_date, start_time, end_time) VALUES (?, ?, ?, ?, ?)`)
-    .run(task_id, person_id, date, start_time, end_time);
+  db.prepare('INSERT OR REPLACE INTO task_assignments (task_id, person_id, assigned_date) VALUES (?, ?, ?)')
+    .run(task_id, person_id, date);
   if (task.status === 'backlog') {
     db.prepare(`UPDATE tasks SET status = 'assigned', updated_at = datetime('now') WHERE id = ?`).run(task_id);
   }
   sendState(res);
 });
 
-// Move an assignment to a different person and/or time slot.
-app.post('/api/assign/move', (req, res) => {
-  const { task_id, from_person_id, to_person_id, date, start_time = null, end_time = null } = req.body;
+// Set or clear the time slot for a task on a specific day.
+app.put('/api/schedule', (req, res) => {
+  const { task_id, date, start_time, end_time } = req.body;
   if (!db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(task_id))
     return res.status(404).json({ error: 'Tarea no encontrada' });
-  const tx = db.transaction(() => {
-    if (from_person_id !== to_person_id) {
-      db.prepare('DELETE FROM task_assignments WHERE task_id = ? AND person_id = ?').run(task_id, from_person_id);
-    }
-    db.prepare(`INSERT OR REPLACE INTO task_assignments (task_id, person_id, assigned_date, start_time, end_time) VALUES (?, ?, ?, ?, ?)`)
-      .run(task_id, to_person_id, date, start_time, end_time);
-  });
-  tx();
+  if (!start_time) {
+    db.prepare('DELETE FROM task_schedule WHERE task_id = ? AND date = ?').run(task_id, date);
+  } else {
+    db.prepare('INSERT OR REPLACE INTO task_schedule (task_id, date, start_time, end_time) VALUES (?, ?, ?, ?)')
+      .run(task_id, date, start_time, end_time);
+  }
   sendState(res);
 });
 
