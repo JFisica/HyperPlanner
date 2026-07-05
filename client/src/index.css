@@ -296,6 +296,7 @@ tr.dim td { opacity: 0.45; }
 .sidebar-task:hover { border-color: var(--accent); }
 .sidebar-task:active { cursor: grabbing; }
 .sidebar-task.blocked { border-left: 3px solid var(--danger); }
+.sidebar-task.drop-active { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
 .sidebar-task-name { font-size: 12px; font-weight: 600; line-height: 1.3; }
 .sidebar-task-meta { font-size: 11px; color: var(--muted); margin-top: 1px; }
 .sidebar-task-assignees { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }

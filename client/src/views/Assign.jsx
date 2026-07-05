@@ -90,6 +90,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
   const eventsRef = useRef(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [openAssigneeMenu, setOpenAssigneeMenu] = useState(null); // task id
+  const [personDropTarget, setPersonDropTarget] = useState(null); // task id currently hovered by a dragged person
 
   const tasksById      = useMemo(() => byId(tasks), [tasks]);
   const peopleById     = useMemo(() => byId(people), [people]);
@@ -227,15 +228,34 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
     mutate('PUT', `/api/tasks/${task.id}`, { assignee_ids });
   }
 
-  // ---- sidebar task drag → drop onto the calendar creates+assigns a slot in one step ----
+  function addAssignee(task, personId) {
+    if (task.assignee_ids.includes(personId)) return;
+    mutate('PUT', `/api/tasks/${task.id}`, { assignee_ids: [...task.assignee_ids, personId] });
+  }
+
+  // ---- drag & drop ----
+  // Two kinds of things get dragged onto the calendar: a task (from the "sin
+  // horario" list, to schedule it) and a person (to assign them to a task,
+  // like in the very first version of this page). They use distinct
+  // dataTransfer types so a drop handler can tell them apart.
   function onSidebarTaskDragStart(e, task) {
     e.dataTransfer.effectAllowed = 'copy';
-    e.dataTransfer.setData('text/plain', String(task.id));
+    e.dataTransfer.setData('application/x-task', String(task.id));
+  }
+
+  function onPersonDragStart(e, person) {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/x-person', String(person.id));
+  }
+
+  function isPersonDrag(e) {
+    return e.dataTransfer.types.includes('application/x-person');
   }
 
   async function onCalendarDrop(e) {
     e.preventDefault();
-    const taskId = Number(e.dataTransfer.getData('text/plain'));
+    if (isPersonDrag(e)) return; // dropping a person on empty background has no task to attach to
+    const taskId = Number(e.dataTransfer.getData('application/x-task'));
     if (!taskId) return;
     const task = tasksById.get(taskId);
     if (!task) return;
@@ -249,13 +269,37 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
     });
   }
 
+  function onSlotDragOver(e, slot) {
+    if (isPersonDrag(e)) {
+      if (slot.task_id) { e.preventDefault(); setPersonDropTarget(slot.task_id); }
+    } else if (!slot.task_id) {
+      e.preventDefault();
+    }
+  }
+
   async function onSlotDrop(e, slot) {
     e.preventDefault();
     e.stopPropagation();
+    setPersonDropTarget(null);
+    if (isPersonDrag(e)) {
+      if (!slot.task_id) return;
+      const personId = Number(e.dataTransfer.getData('application/x-person'));
+      const task = tasksById.get(slot.task_id);
+      if (personId && task) addAssignee(task, personId);
+      return;
+    }
     if (slot.task_id) return; // don't clobber an already-assigned slot
-    const taskId = Number(e.dataTransfer.getData('text/plain'));
+    const taskId = Number(e.dataTransfer.getData('application/x-task'));
     if (!taskId) return;
     await mutate('PUT', `/api/slots/${slot.id}`, { task_id: taskId });
+  }
+
+  function onSidebarTaskDrop(e, task) {
+    e.preventDefault();
+    setPersonDropTarget(null);
+    if (!isPersonDrag(e)) return;
+    const personId = Number(e.dataTransfer.getData('application/x-person'));
+    if (personId) addAssignee(task, personId);
   }
 
   const hours     = Array.from({ length: TOTAL_H + 1 }, (_, i) => START_HOUR + i); // 6..26
@@ -278,7 +322,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
         <button className="primary" onClick={() => setCreatingTask(true)}>+ Nueva tarea</button>
         <button className="mini" onClick={addDefaultSlot} title="Añade un horario nuevo (útil para solapar con otro arrastrándolo después)">+ horario</button>
         <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
-          Arrastra en el calendario para crear un horario · arrastra tareas para asignarlas
+          Arrastra en el calendario para crear un horario · arrastra tareas para asignarlas · arrastra personas a una tarea para asignarlas
         </span>
       </div>
 
@@ -297,9 +341,12 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
               return (
                 <div
                   key={t.id}
-                  className={`sidebar-task${blk.length ? ' blocked' : ''}`}
+                  className={`sidebar-task${blk.length ? ' blocked' : ''}${personDropTarget === t.id ? ' drop-active' : ''}`}
                   draggable
                   onDragStart={(e) => onSidebarTaskDragStart(e, t)}
+                  onDragOver={(e) => { if (isPersonDrag(e)) { e.preventDefault(); setPersonDropTarget(t.id); } }}
+                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setPersonDropTarget(null); }}
+                  onDrop={(e) => onSidebarTaskDrop(e, t)}
                   title={`Arrastra al calendario · ${fmtHours(t.estimate_hours || 0)}h estimadas`}
                 >
                   <div className="sidebar-task-name">
@@ -344,14 +391,23 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
 
           {people.length > 0 && (
             <>
-              <div className="col-label" style={{ marginTop: 14 }}>Carga hoy</div>
+              <div className="col-label" style={{ marginTop: 14 }}>Personas</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {people.map((p) => {
                   const load = loadForDay(slotsToday, tasksById, p.id, date);
                   return (
-                    <div key={p.id} className="row space-between" style={{ fontSize: 12 }}>
-                      <span>{p.name}</span>
-                      <span className={load > 10 ? 'load over' : 'load'}>{fmtHours(load)}h</span>
+                    <div
+                      key={p.id}
+                      className="sidebar-person"
+                      draggable
+                      onDragStart={(e) => onPersonDragStart(e, p)}
+                      title="Arrastra a una tarea del calendario o de la lista para asignarla"
+                    >
+                      <div className="person-head">
+                        <span className="drag-handle">⠿</span>
+                        <span className="person-name">{p.name}</span>
+                        <span className={load > 10 ? 'load over' : 'load'}>{fmtHours(load)}h</span>
+                      </div>
                     </div>
                   );
                 })}
@@ -403,17 +459,20 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                 const blk = task ? blockers(task, tasksById) : [];
                 const assignees = (task?.assignee_ids || []).map((pid) => peopleById.get(pid)).filter(Boolean);
 
+                const isPersonDropTarget = task && personDropTarget === task.id;
+
                 return (
                   <div
                     key={slot.id}
-                    className={`cal-block slot-block${task ? ` st-${task.status}` : ' slot-empty'}${task?.is_critical ? ' critical' : ''}`}
+                    className={`cal-block slot-block${task ? ` st-${task.status}` : ' slot-empty'}${task?.is_critical ? ' critical' : ''}${isPersonDropTarget ? ' drop-active' : ''}`}
                     style={{
                       top, height,
                       left: `calc(${leftPct}% + ${leftGutter}px)`,
                       right: `calc(${rightPct}% + ${rightGutter}px)`,
                     }}
                     onMouseDown={(e) => startMove(e, slot)}
-                    onDragOver={(e) => { if (!slot.task_id) e.preventDefault(); }}
+                    onDragOver={(e) => onSlotDragOver(e, slot)}
+                    onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setPersonDropTarget(null); }}
                     onDrop={(e) => onSlotDrop(e, slot)}
                   >
                     <div className="slot-resize-handle top" onMouseDown={(e) => startResize(e, slot, 'top')} />
