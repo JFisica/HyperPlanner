@@ -492,8 +492,7 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
   padding-bottom: 14px;
   margin-bottom: 16px;
 }
-.report-title { font-size: 30px; font-weight: 800; letter-spacing: 0.02em; color: #fff; }
-.report-date  { font-size: 18px; color: var(--muted); margin-top: 4px; }
+.report-date  { font-size: 20px; font-weight: 700; color: var(--text); }
 .countdown {
   font-size: 40px;
   font-weight: 800;
@@ -559,8 +558,7 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
 /* Light overrides applied only during PNG export */
 .report.exporting { background: #fff !important; color: #111 !important; border-color: #ccc !important; }
 .report.exporting .report-header  { border-bottom-color: #ccc !important; }
-.report.exporting .report-title   { color: #111 !important; }
-.report.exporting .report-date    { color: #555 !important; }
+.report.exporting .report-date    { color: #111 !important; }
 .report.exporting .countdown      { color: #6d28d9 !important; }
 .report.exporting .countdown.urgent { color: #dc2626 !important; }
 .report.exporting .countdown-sub  { color: #888 !important; }

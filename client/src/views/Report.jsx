@@ -107,10 +107,7 @@ export default function Report({ state, date, setDate, isPublic = false }) {
 
       <div className="report" ref={ref}>
         <div className="report-header">
-          <div>
-            <div className="report-title">PARTE DEL DÍA</div>
-            <div className="report-date">{formatDate(date)} · {date}</div>
-          </div>
+          <div className="report-date">{formatDate(date)} · {date}</div>
           <div className={`countdown ${dLeft <= 3 ? 'urgent' : ''}`}>
             {dLeft > 0 ? `D−${dLeft}` : dLeft === 0 ? '¡DEMO HOY!' : 'post-demo'}
             {dLeft > 0 && <span className="countdown-sub">para la demo</span>}
