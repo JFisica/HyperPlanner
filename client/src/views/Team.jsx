@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { defaultCapacity } from '../lib';
 
 export default function Team({ state, mutate }) {
-  const { people, skills } = state;
+  const { people, skills, settings } = state;
   const [newName, setNewName] = useState('');
   const [newSkill, setNewSkill] = useState('');
 
@@ -25,21 +26,9 @@ export default function Team({ state, mutate }) {
     mutate('PUT', `/api/people/${person.id}`, { skill_ids });
   }
 
-  function deletePerson(person) {
-    if (confirm(`¿Eliminar a ${person.name}? Sus tareas quedarán sin asignar.`)) {
-      mutate('DELETE', `/api/people/${person.id}`);
-    }
-  }
-
-  function deleteSkill(skill) {
-    if (confirm(`¿Eliminar la skill "${skill.name}"?`)) {
-      mutate('DELETE', `/api/skills/${skill.id}`);
-    }
-  }
-
   return (
     <div className="view">
-      <div className="row gap">
+      <div className="row gap wrap">
         <form onSubmit={addPerson} className="inline-form">
           <input
             placeholder="Nueva persona…"
@@ -56,6 +45,23 @@ export default function Team({ state, mutate }) {
           />
           <button type="submit">+ Skill</button>
         </form>
+        <label className="row gap" style={{ marginLeft: 'auto' }}>
+          <span className="muted">Jornada estándar</span>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            style={{ width: 64 }}
+            key={`cap-${settings?.default_capacity}`}
+            defaultValue={defaultCapacity(settings)}
+            onBlur={(e) => {
+              const v = Number(e.target.value);
+              if (v !== defaultCapacity(settings))
+                mutate('PUT', '/api/settings', { key: 'default_capacity', value: v });
+            }}
+          />
+          <span className="muted">h/día</span>
+        </label>
       </div>
 
       <div className="table-wrap">
@@ -63,12 +69,11 @@ export default function Team({ state, mutate }) {
           <thead>
             <tr>
               <th>Nombre</th>
-              <th title="Horas/día por defecto">h/día</th>
               <th>Notas</th>
               {skills.map((s) => (
                 <th key={s.id} className="skill-col">
                   <span>{s.name}</span>
-                  <button className="mini danger" onClick={() => deleteSkill(s)} title="Eliminar skill">
+                  <button className="mini danger" onClick={() => mutate('DELETE', `/api/skills/${s.id}`)} title="Eliminar skill">
                     ×
                   </button>
                 </th>
@@ -87,20 +92,6 @@ export default function Team({ state, mutate }) {
                     onBlur={(e) => {
                       const v = e.target.value.trim();
                       if (v && v !== p.name) mutate('PUT', `/api/people/${p.id}`, { name: v });
-                    }}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="cell-input hours"
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    key={`c${p.id}-${p.capacity}`}
-                    defaultValue={p.capacity}
-                    onBlur={(e) => {
-                      const v = Number(e.target.value);
-                      if (v !== p.capacity) mutate('PUT', `/api/people/${p.id}`, { capacity: v });
                     }}
                   />
                 </td>
@@ -126,7 +117,7 @@ export default function Team({ state, mutate }) {
                   </td>
                 ))}
                 <td>
-                  <button className="mini danger" onClick={() => deletePerson(p)}>
+                  <button className="mini danger" onClick={() => mutate('DELETE', `/api/people/${p.id}`)}>
                     ×
                   </button>
                 </td>
@@ -134,7 +125,7 @@ export default function Team({ state, mutate }) {
             ))}
             {people.length === 0 && (
               <tr>
-                <td colSpan={skills.length + 4} className="empty">
+                <td colSpan={skills.length + 3} className="empty">
                   Añade a las personas del equipo.
                 </td>
               </tr>

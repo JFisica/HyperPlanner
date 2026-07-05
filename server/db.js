@@ -10,9 +10,13 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS people (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  notes TEXT DEFAULT '',
-  capacity REAL DEFAULT 10
+  notes TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+INSERT OR IGNORE INTO settings (key, value) VALUES ('default_capacity', '10');
 CREATE TABLE IF NOT EXISTS skills (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE

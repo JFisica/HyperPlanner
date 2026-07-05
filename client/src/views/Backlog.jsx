@@ -21,7 +21,7 @@ export default function Backlog({ state, mutate }) {
   );
 
   function deleteTask(t) {
-    if (confirm(`¿Eliminar la tarea "${t.title}"?`)) mutate('DELETE', `/api/tasks/${t.id}`);
+    mutate('DELETE', `/api/tasks/${t.id}`);
   }
 
   return (

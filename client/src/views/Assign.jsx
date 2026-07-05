@@ -8,12 +8,13 @@ import {
   tasksForPersonDay,
   loadForDay,
   capacityForDay,
+  defaultCapacity,
   fmtHours,
   formatDate,
 } from '../lib';
 
 export default function Assign({ state, mutate, date, setDate, showToast }) {
-  const { people, tasks, skills, milestones, capacity_overrides } = state;
+  const { people, tasks, skills, milestones, capacity_overrides, settings } = state;
   const [dragPersonId, setDragPersonId] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const [statusFilter, setStatusFilter] = useState('active'); // active | all
@@ -58,7 +59,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
     const blk = blockers(task, tasksById);
     if (blk.length) warnings.push(`Bloqueada por: ${blk.map((b) => b.title).join(', ')}`);
     const load = loadForDay(tasks, person.id, date) + (task.estimate_hours || 0);
-    const cap = capacityForDay(person, date, capacity_overrides);
+    const cap = capacityForDay(person, date, capacity_overrides, settings);
     if (load > cap) warnings.push(`Sobrecarga: ${fmtHours(load)}h de ${fmtHours(cap)}h disponibles`);
 
     if (warnings.length && showToast) {
@@ -68,9 +69,9 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
   }
 
   function editDayCapacity(person) {
-    const current = capacityForDay(person, date, capacity_overrides);
+    const current = capacityForDay(person, date, capacity_overrides, settings);
     const v = prompt(
-      `Horas de ${person.name} el ${formatDate(date)} (vacío = por defecto ${person.capacity}h):`,
+      `Horas de ${person.name} el ${formatDate(date)} (vacío = jornada estándar ${defaultCapacity(settings)}h):`,
       current
     );
     if (v === null) return;
@@ -129,7 +130,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
           </div>
           {people.map((p) => {
             const load = loadForDay(tasks, p.id, date);
-            const cap = capacityForDay(p, date, capacity_overrides);
+            const cap = capacityForDay(p, date, capacity_overrides, settings);
             const over = load > cap;
             const pct = cap > 0 ? Math.min(100, (load / cap) * 100) : 100;
             const hasOverride = capacity_overrides.some(

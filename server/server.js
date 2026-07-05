@@ -33,6 +33,8 @@ function getState() {
   const taskDeps = db.prepare('SELECT * FROM task_deps').all();
   const taskAssignments = db.prepare('SELECT * FROM task_assignments').all();
   const capacityOverrides = db.prepare('SELECT * FROM capacity_overrides').all();
+  const settingsRows = db.prepare('SELECT * FROM settings').all();
+  const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
 
   for (const p of people) {
     p.skill_ids = personSkills.filter((x) => x.person_id === p.id).map((x) => x.skill_id);
@@ -42,7 +44,7 @@ function getState() {
     t.dep_ids = taskDeps.filter((x) => x.task_id === t.id).map((x) => x.depends_on_task_id);
     t.assignments = taskAssignments.filter((x) => x.task_id === t.id);
   }
-  return { people, skills, milestones, tasks, capacity_overrides: capacityOverrides };
+  return { people, skills, milestones, tasks, capacity_overrides: capacityOverrides, settings };
 }
 
 const sendState = (res) => res.json(getState());
@@ -50,15 +52,24 @@ const sendState = (res) => res.json(getState());
 app.get('/api/state', (req, res) => sendState(res));
 app.post('/api/login', (req, res) => res.json({ ok: true }));
 
+// ---------- settings ----------
+
+app.put('/api/settings', (req, res) => {
+  const { key, value } = req.body;
+  if (!key) return res.status(400).json({ error: 'Falta la clave' });
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
+  sendState(res);
+});
+
 // ---------- people ----------
 
 app.post('/api/people', (req, res) => {
-  const { name, notes = '', capacity = 10, skill_ids = [] } = req.body;
+  const { name, notes = '', skill_ids = [] } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Falta el nombre' });
   const tx = db.transaction(() => {
     const { lastInsertRowid: id } = db
-      .prepare('INSERT INTO people (name, notes, capacity) VALUES (?, ?, ?)')
-      .run(name.trim(), notes, capacity);
+      .prepare('INSERT INTO people (name, notes) VALUES (?, ?)')
+      .run(name.trim(), notes);
     const ins = db.prepare('INSERT INTO person_skills (person_id, skill_id) VALUES (?, ?)');
     for (const sid of skill_ids) ins.run(id, sid);
   });
@@ -70,10 +81,10 @@ app.put('/api/people/:id', (req, res) => {
   const id = Number(req.params.id);
   const person = db.prepare('SELECT * FROM people WHERE id = ?').get(id);
   if (!person) return res.status(404).json({ error: 'Persona no encontrada' });
-  const { name = person.name, notes = person.notes, capacity = person.capacity, skill_ids } = req.body;
+  const { name = person.name, notes = person.notes, skill_ids } = req.body;
   const tx = db.transaction(() => {
-    db.prepare('UPDATE people SET name = ?, notes = ?, capacity = ? WHERE id = ?')
-      .run(name, notes, capacity, id);
+    db.prepare('UPDATE people SET name = ?, notes = ? WHERE id = ?')
+      .run(name, notes, id);
     if (Array.isArray(skill_ids)) {
       db.prepare('DELETE FROM person_skills WHERE person_id = ?').run(id);
       const ins = db.prepare('INSERT INTO person_skills (person_id, skill_id) VALUES (?, ?)');
