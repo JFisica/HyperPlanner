@@ -11,13 +11,22 @@ import {
 } from '../lib';
 
 const PX_PER_HOUR = 80;
-const START_HOUR = 7;
-const END_HOUR = 22;
-const TOTAL_H = END_HOUR - START_HOUR;
-const CAL_HEIGHT = TOTAL_H * PX_PER_HOUR;
+const START_HOUR = 6;
+const END_HOUR = 26;   // 02:00 siguiente día
+const TOTAL_H = END_HOUR - START_HOUR; // 20
+const CAL_HEIGHT = TOTAL_H * PX_PER_HOUR; // 1600
+
+// Hours 00-05 are post-midnight; treat them as 24-29 internally.
+function normalizeH(h) { return h < START_HOUR ? h + 24 : h; }
+
+function fmtHour(h) {
+  const d = h >= 24 ? h - 24 : h;
+  return `${String(d).padStart(2, '0')}:00`;
+}
 
 function timeToY(time) {
-  const [h, m] = time.split(':').map(Number);
+  let [h, m] = time.split(':').map(Number);
+  h = normalizeH(h);
   return (h - START_HOUR + m / 60) * PX_PER_HOUR;
 }
 
@@ -25,20 +34,24 @@ function yToTime(y, durationH = 1) {
   const snapped = Math.round((y / PX_PER_HOUR) * 2) / 2;
   const clamped = Math.max(0, Math.min(snapped, TOTAL_H - durationH));
   const absH = START_HOUR + clamped;
-  const h = Math.floor(absH);
+  let h = Math.floor(absH);
   const m = absH % 1 >= 0.5 ? 30 : 0;
+  if (h >= 24) h -= 24;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function addHoursToTime(time, hours) {
-  const [h, m] = time.split(':').map(Number);
+  let [h, m] = time.split(':').map(Number);
+  h = normalizeH(h);
   const total = h * 60 + m + Math.round(hours * 60);
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  let newH = Math.floor(total / 60);
+  if (newH >= 24) newH -= 24;
+  return `${String(newH).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function timeToMin(t) {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + m;
+  let [h, m] = t.split(':').map(Number);
+  return normalizeH(h) * 60 + m;
 }
 
 // Google Calendar-style column layout for overlapping blocks.
@@ -208,8 +221,8 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
     });
   }
 
-  const hours     = Array.from({ length: TOTAL_H + 1 }, (_, i) => START_HOUR + i);
-  const halfHours = Array.from({ length: TOTAL_H }, (_, i) => START_HOUR + i);
+  const hours     = Array.from({ length: TOTAL_H + 1 }, (_, i) => START_HOUR + i); // 6..26
+  const halfHours = Array.from({ length: TOTAL_H },     (_, i) => START_HOUR + i);
 
   return (
     <div className="view schedule-page">
@@ -302,7 +315,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
                   className="cal-hour-label"
                   style={{ top: (h - START_HOUR) * PX_PER_HOUR }}
                 >
-                  {String(h).padStart(2, '0')}:00
+                  {fmtHour(h)}
                 </div>
               ))}
             </div>
@@ -318,7 +331,7 @@ export default function Assign({ state, mutate, date, setDate, showToast }) {
               {hours.map((h) => (
                 <div
                   key={`hl${h}`}
-                  className={`cal-hline${h === 12 ? ' midday' : ''}`}
+                  className={`cal-hline${h === 12 ? ' midday' : h === 24 ? ' midnight' : ''}`}
                   style={{ top: (h - START_HOUR) * PX_PER_HOUR }}
                 />
               ))}

@@ -3,19 +3,27 @@ import html2canvas from 'html2canvas';
 import { byId, daysUntilDemo, fmtHours, formatDate } from '../lib';
 
 const PX_PER_HOUR = 80;
-const START_HOUR = 7;
-const END_HOUR = 22;
-const TOTAL_H = END_HOUR - START_HOUR;
-const CAL_HEIGHT = TOTAL_H * PX_PER_HOUR;
+const START_HOUR = 6;
+const END_HOUR = 26;   // 02:00 siguiente día
+const TOTAL_H = END_HOUR - START_HOUR; // 20
+const CAL_HEIGHT = TOTAL_H * PX_PER_HOUR; // 1600
+
+function normalizeH(h) { return h < START_HOUR ? h + 24 : h; }
+
+function fmtHour(h) {
+  const d = h >= 24 ? h - 24 : h;
+  return `${String(d).padStart(2, '0')}:00`;
+}
 
 function timeToY(time) {
-  const [h, m] = time.split(':').map(Number);
+  let [h, m] = time.split(':').map(Number);
+  h = normalizeH(h);
   return (h - START_HOUR + m / 60) * PX_PER_HOUR;
 }
 
 function timeToMin(t) {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + m;
+  let [h, m] = t.split(':').map(Number);
+  return normalizeH(h) * 60 + m;
 }
 
 function layoutBlocks(blocks) {
@@ -74,6 +82,23 @@ export default function Report({ state, date, setDate, isPublic = false }) {
   async function exportPNG() {
     setExporting(true);
     ref.current.classList.add('exporting');
+
+    // Crop the calendar to the hours actually used (± 30 min padding).
+    const calOuter = ref.current.querySelector('.report-cal-outer');
+    const calInner = calOuter?.querySelector('.cal-inner');
+    const PAD = PX_PER_HOUR * 0.5; // 30 min
+
+    let cropTop = 0;
+    let cropH = CAL_HEIGHT;
+    if (calInner && layoutedBlocks.length > 0) {
+      const minY = Math.min(...layoutedBlocks.map((b) => timeToY(b.startTime)));
+      const maxY = Math.max(...layoutedBlocks.map((b) => timeToY(b.endTime)));
+      cropTop = Math.max(0, minY - PAD);
+      cropH   = Math.min(CAL_HEIGHT, maxY + PAD) - cropTop;
+      calInner.style.marginTop = `-${cropTop}px`;
+      calOuter.style.height    = `${cropH}px`;
+    }
+
     try {
       const canvas = await html2canvas(ref.current, { backgroundColor: '#ffffff', scale: 2 });
       const a = document.createElement('a');
@@ -81,13 +106,14 @@ export default function Report({ state, date, setDate, isPublic = false }) {
       a.href = canvas.toDataURL('image/png');
       a.click();
     } finally {
+      if (calInner) { calInner.style.marginTop = ''; calOuter.style.height = ''; }
       ref.current.classList.remove('exporting');
       setExporting(false);
     }
   }
 
-  const hours     = Array.from({ length: TOTAL_H + 1 }, (_, i) => START_HOUR + i);
-  const halfHours = Array.from({ length: TOTAL_H }, (_, i) => START_HOUR + i);
+  const hours     = Array.from({ length: TOTAL_H + 1 }, (_, i) => START_HOUR + i); // 6..26
+  const halfHours = Array.from({ length: TOTAL_H },     (_, i) => START_HOUR + i);
 
   return (
     <div className="view report-view">
@@ -124,7 +150,7 @@ export default function Report({ state, date, setDate, isPublic = false }) {
                   className="cal-hour-label"
                   style={{ top: (h - START_HOUR) * PX_PER_HOUR }}
                 >
-                  {String(h).padStart(2, '0')}:00
+                  {fmtHour(h)}
                 </div>
               ))}
             </div>
@@ -133,7 +159,7 @@ export default function Report({ state, date, setDate, isPublic = false }) {
               {hours.map((h) => (
                 <div
                   key={`hl${h}`}
-                  className={`cal-hline${h === 12 ? ' midday' : ''}`}
+                  className={`cal-hline${h === 12 ? ' midday' : h === 24 ? ' midnight' : ''}`}
                   style={{ top: (h - START_HOUR) * PX_PER_HOUR }}
                 />
               ))}

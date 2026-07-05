@@ -343,8 +343,9 @@ tr.dim td { opacity: 0.45; }
   background: var(--border);
   pointer-events: none;
 }
-.cal-hline.half   { background: #1e1e30; }
-.cal-hline.midday { background: var(--border2); }
+.cal-hline.half     { background: #1e1e30; }
+.cal-hline.midday   { background: var(--border2); }
+.cal-hline.midnight { background: var(--accent2); height: 2px; }
 
 /* Calendar task blocks */
 .cal-block {
@@ -623,7 +624,8 @@ legend { font-size: 11px; font-weight: 700; color: var(--muted); padding: 0 4px;
 .report.exporting .cal-events     { background: #fff !important; }
 .report.exporting .cal-hline      { background: #e5e7eb !important; }
 .report.exporting .cal-hline.half { background: #f3f4f6 !important; }
-.report.exporting .cal-hline.midday { background: #9ca3af !important; }
+.report.exporting .cal-hline.midday   { background: #9ca3af !important; }
+.report.exporting .cal-hline.midnight { background: #7c3aed !important; }
 .report.exporting .cal-block      { color: #1a1030 !important; }
 .report.exporting .cal-block.st-backlog     { background: #ede9fe !important; border-left-color: #7c3aed !important; color: #4c1d95 !important; }
 .report.exporting .cal-block.st-assigned    { background: #ede9fe !important; border-left-color: #7c3aed !important; color: #4c1d95 !important; }
