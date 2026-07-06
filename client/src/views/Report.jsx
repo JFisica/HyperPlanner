@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
-import { byId, daysUntilDemo, fmtHours, formatDate } from '../lib';
+import { byId, daysUntilDemo, formatDate } from '../lib';
 
 const PX_PER_HOUR = 80;
 const START_HOUR = 6;
@@ -66,16 +66,6 @@ export default function Report({ state, date, setDate }) {
       .filter((b) => b.task);
     return layoutBlocks(blocks);
   }, [slotsToday, tasks]);
-
-  // Tasks with at least one assignee but no time slot today (still need to be picked up).
-  const unscheduledAssigned = useMemo(() => {
-    const scheduledTaskIds = new Set(slotsToday.filter((s) => s.task_id).map((s) => s.task_id));
-    return tasks.filter((t) => t.assignee_ids.length > 0 && t.status !== 'done' && !scheduledTaskIds.has(t.id));
-  }, [tasks, slotsToday]);
-
-  const unassignedPeople = people.filter((p) =>
-    !slotsToday.some((s) => s.task_id && tasks.find((t) => t.id === s.task_id)?.assignee_ids.includes(p.id))
-  );
 
   async function exportPNG() {
     setExporting(true);
@@ -205,31 +195,6 @@ export default function Report({ state, date, setDate }) {
             </div>
           </div>
         </div>
-
-        {/* Tasks assigned but without a scheduled time slot */}
-        {unscheduledAssigned.length > 0 && (
-          <div className="report-unscheduled">
-            <div className="report-unscheduled-title">Sin horario</div>
-            {unscheduledAssigned.map((t) => {
-              const names = t.assignee_ids.map((pid) => peopleById.get(pid)?.name).filter(Boolean);
-              return (
-                <div key={t.id} className="report-unscheduled-item">
-                  <span>{!!t.is_critical && '● '}{t.title}{t.status === 'done' ? ' ✔' : ''}</span>
-                  <span className="muted">
-                    {fmtHours(t.estimate_hours || 0)}h
-                    {names.length ? ` · ${names.join(', ')}` : ''}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {unassignedPeople.length > 0 && (
-          <div className="report-footer">
-            Sin asignación: {unassignedPeople.map((p) => p.name).join(', ')}
-          </div>
-        )}
       </div>
     </div>
   );
